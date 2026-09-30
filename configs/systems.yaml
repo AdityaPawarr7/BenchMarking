@@ -1,0 +1,184 @@
+# Every gateway / router under test. All are called through an OpenAI-compatible
+# /chat/completions endpoint. Systems whose api_key_env is unset are skipped with a warning.
+#
+# IMPORTANT before a real run:
+#   * Confirm every base_url against the vendor's docs (marked "verify").
+#   * Replace the example model IDs with the exact current IDs each system uses.
+#   * Track A: every system must map the alias to the SAME upstream model on the SAME provider.
+#
+# Fields
+#   name          unique id used in results
+#   kind          baseline | gateway | router
+#   base_url      OpenAI-compatible base (".../v1")
+#   api_key_env   env var holding the key
+#   tracks        which tracks it runs in: A (overhead) and/or B (routing quality)
+#   models        logical alias -> this system's model id (used by Track A and fixed baselines)
+#   router_model  model string that turns on the system's own routing (Track B), if any
+#   headers       extra headers (values may use ${ENV_VAR})
+#   extra_body    extra JSON merged into every request body
+
+defaults:
+  timeout_s: 180
+  max_retries: 0          # retries hide gateway behaviour; keep 0 for Track A/B
+
+systems:
+  # ---------- Baselines: direct provider calls ----------
+  - name: direct-openai
+    kind: baseline
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    tracks: [A, B]
+    models: {small: gpt-4.1-mini, mid: gpt-4.1, frontier: gpt-5}
+
+  - name: direct-anthropic
+    kind: baseline
+    base_url: https://api.anthropic.com/v1          # OpenAI-SDK compatibility endpoint
+    api_key_env: ANTHROPIC_API_KEY
+    tracks: [B]
+    models: {mid: claude-sonnet-4-5, frontier: claude-opus-4-1}
+
+  - name: direct-google
+    kind: baseline
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    api_key_env: GEMINI_API_KEY
+    tracks: [B]
+    models: {small: gemini-2.5-flash, frontier: gemini-2.5-pro}
+
+  # ---------- System of interest ----------
+  - name: concentrate
+    kind: router
+    base_url: https://api.concentrate.ai/v1          # TODO: confirm with the Concentrate API team
+    api_key_env: CONCENTRATE_API_KEY
+    tracks: [A, B]
+    models: {small: openai/gpt-4.1-mini, mid: openai/gpt-4.1, frontier: openai/gpt-5}
+    router_model: auto                               # TODO: the model string / flag that enables routing
+
+  # ---------- Smart routers ----------
+  - name: ramp-router
+    kind: router
+    base_url: https://router.ramp.com/v1             # TODO: verify (beta, OpenAI-compatible)
+    api_key_env: RAMP_ROUTER_API_KEY
+    tracks: [A, B]
+    models: {small: openai/gpt-4.1-mini}
+    router_model: auto                               # verify
+
+  - name: openrouter
+    kind: router
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    tracks: [A, B]
+    models: {small: openai/gpt-4.1-mini, mid: openai/gpt-4.1, frontier: openai/gpt-5}
+    router_model: openrouter/auto
+    extra_body:
+      usage: {include: true}                          # returns billed cost in usage.cost
+      provider: {order: [OpenAI], allow_fallbacks: false}   # pin upstream for Track A fairness
+
+  - name: martian
+    kind: router
+    base_url: https://api.withmartian.com/v1         # verify
+    api_key_env: MARTIAN_API_KEY
+    tracks: [A, B]
+    models: {small: openai/gpt-4.1-mini}
+    router_model: router                              # verify
+
+  - name: notdiamond
+    kind: router
+    base_url: https://api.notdiamond.ai/v1           # verify; may need its own adapter
+    api_key_env: NOTDIAMOND_API_KEY
+    tracks: [B]
+    router_model: notdiamond                          # verify
+
+  - name: requesty
+    kind: router
+    base_url: https://router.requesty.ai/v1          # verify
+    api_key_env: REQUESTY_API_KEY
+    tracks: [A, B]
+    models: {small: openai/gpt-4.1-mini}
+
+  - name: unify
+    kind: router
+    base_url: https://api.unify.ai/v0                # verify
+    api_key_env: UNIFY_API_KEY
+    tracks: [A, B]
+    models: {small: gpt-4.1-mini@openai}
+
+  - name: routellm
+    kind: router
+    base_url: http://localhost:6060/v1               # self-hosted RouteLLM OpenAI-compatible server
+    api_key_env: LITELLM_API_KEY
+    tracks: [B]
+    router_model: router-mf-0.11593                   # threshold picks the cost/quality point
+
+  # ---------- Gateways / proxies ----------
+  - name: litellm
+    kind: gateway
+    base_url: http://localhost:4000/v1               # self-hosted LiteLLM proxy
+    api_key_env: LITELLM_API_KEY
+    tracks: [A]
+    models: {small: gpt-4.1-mini}
+
+  - name: portkey
+    kind: gateway
+    base_url: https://api.portkey.ai/v1              # verify
+    api_key_env: PORTKEY_API_KEY
+    tracks: [A]
+    models: {small: gpt-4.1-mini}
+    headers: {x-portkey-api-key: "${PORTKEY_API_KEY}", x-portkey-provider: openai}
+
+  - name: helicone
+    kind: gateway
+    base_url: https://ai-gateway.helicone.ai/v1      # verify
+    api_key_env: HELICONE_API_KEY
+    tracks: [A]
+    models: {small: gpt-4.1-mini}
+
+  - name: cloudflare-ai-gateway
+    kind: gateway
+    base_url: https://gateway.ai.cloudflare.com/v1/ACCOUNT_ID/GATEWAY_ID/compat   # verify, fill ids
+    api_key_env: OPENAI_API_KEY
+    tracks: [A]
+    models: {small: openai/gpt-4.1-mini}
+    headers: {cf-aig-authorization: "Bearer ${CLOUDFLARE_AI_GATEWAY_TOKEN}"}
+
+  - name: vercel-ai-gateway
+    kind: gateway
+    base_url: https://ai-gateway.vercel.sh/v1        # verify
+    api_key_env: VERCEL_AI_GATEWAY_API_KEY
+    tracks: [A]
+    models: {small: openai/gpt-4.1-mini}
+
+  - name: kong-ai-gateway
+    kind: gateway
+    base_url: http://localhost:8000/openai/v1        # your Kong route
+    api_key_env: KONG_API_KEY
+    tracks: [A]
+    models: {small: gpt-4.1-mini}
+
+  - name: bifrost
+    kind: gateway
+    base_url: http://localhost:8080/v1               # self-hosted Bifrost
+    api_key_env: LITELLM_API_KEY
+    tracks: [A]
+    models: {small: openai/gpt-4.1-mini}
+
+  - name: tensorzero
+    kind: gateway
+    base_url: http://localhost:3000/openai/v1        # self-hosted TensorZero
+    api_key_env: LITELLM_API_KEY
+    tracks: [A]
+    models: {small: "tensorzero::model_name::openai::gpt-4.1-mini"}
+
+  - name: azure-model-router
+    kind: router
+    base_url: https://YOUR-RESOURCE.openai.azure.com/openai/v1   # fill in
+    api_key_env: AZURE_AI_API_KEY
+    tracks: [B]
+    router_model: model-router
+    headers: {api-key: "${AZURE_AI_API_KEY}"}
+
+  - name: bedrock-prompt-router
+    kind: router
+    base_url: https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1   # verify
+    api_key_env: AWS_BEDROCK_API_KEY
+    tracks: [B]
+    router_model: "arn:aws:bedrock:us-east-1:ACCOUNT:default-prompt-router/anthropic.claude:1"   # fill in

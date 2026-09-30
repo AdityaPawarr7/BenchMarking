@@ -1,0 +1,7 @@
+# Local mock gateways used by `python scripts/dryrun.py`. No real API calls.
+defaults: {timeout_s: 30}
+systems:
+  - {name: direct-small,    kind: baseline, base_url: "http://127.0.0.1:9001/v1", api_key_env: MOCK_KEY, tracks: [A, B], models: {small: m-small, frontier: m-small}}
+  - {name: direct-frontier, kind: baseline, base_url: "http://127.0.0.1:9002/v1", api_key_env: MOCK_KEY, tracks: [B],    models: {frontier: m-frontier}}
+  - {name: concentrate,     kind: router,   base_url: "http://127.0.0.1:9003/v1", api_key_env: MOCK_KEY, tracks: [A, B], models: {small: m-small}, router_model: auto}
+  - {name: competitor-x,    kind: router,   base_url: "http://127.0.0.1:9004/v1", api_key_env: MOCK_KEY, tracks: [A, B], models: {small: m-small}, router_model: auto}

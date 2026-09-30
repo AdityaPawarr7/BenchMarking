@@ -1,0 +1,32 @@
+# Track B: routing quality per dollar.
+# Each workload is a JSONL file of {"id", "prompt", "answer", "scorer", optional "system"}.
+# Build real files with:  gbench prepare-data --out data/prepared
+workloads:
+  - {name: qa,        path: data/prepared/mmlu_pro.jsonl,  max_items: 750}
+  - {name: math,      path: data/prepared/gsm8k.jsonl,     max_items: 750}
+  - {name: reasoning, path: data/prepared/math500.jsonl,   max_items: 500}
+  - {name: sample,    path: data/sample/sample.jsonl}      # tiny smoke-test set
+
+# Routers run in routing mode (their router_model). Fixed baselines run one model for every prompt.
+routers: [concentrate, ramp-router, openrouter, martian, notdiamond, requesty, unify, routellm,
+          azure-model-router, bedrock-prompt-router]
+
+# Candidate pool = the fixed single-model baselines (system:alias). The strongest and cheapest
+# of these give the always-strongest / always-cheapest reference points.
+baselines:
+  - direct-openai:small
+  - direct-openai:mid
+  - direct-openai:frontier
+  - direct-anthropic:mid
+  - direct-anthropic:frontier
+  - direct-google:small
+  - direct-google:frontier
+
+max_tokens: 1024
+temperature: 0
+concurrency: 16
+
+# LLM judge for scorer=judge items. Blind to system name. One fixed judge for everyone.
+judge:
+  system: direct-openai
+  alias: frontier

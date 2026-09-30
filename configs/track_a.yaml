@@ -1,0 +1,17 @@
+# Track A: gateway overhead. Model is pinned; only the gateway changes.
+baseline: direct-openai        # overhead = system metric - this system's metric
+model_alias: small             # every Track A system must map this alias to the same upstream model
+
+# Fixed prompt shapes (approximate tokens)
+shapes:
+  - {name: tiny,   input_tokens: 100,   output_tokens: 50}
+  - {name: short,  input_tokens: 1000,  output_tokens: 500}
+  - {name: medium, input_tokens: 8000,  output_tokens: 1000}
+  - {name: long,   input_tokens: 32000, output_tokens: 1000}
+
+stream_modes: [true, false]
+requests_per_cell: 1000        # per system x shape x stream mode (spread over sessions)
+warmup_requests: 50            # per system, discarded
+concurrency: 8                 # in-flight requests during Track A (low, to measure overhead not queueing)
+temperature: 0
+nonce: true                    # unique nonce per prompt so no gateway can serve a cached answer

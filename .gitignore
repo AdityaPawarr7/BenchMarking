@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+.env
+.pytest_cache/
+.DS_Store
+
+# Raw results can be large and may contain prompts; commit summaries only.
+results/*
+!results/.gitkeep
+data/prepared/
+
+reports/

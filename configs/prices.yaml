@@ -1,0 +1,17 @@
+# Fallback list prices (USD per 1M tokens) for computing cost when a system does not
+# report billed cost in its response. Fill in current list prices on test day.
+# Keys are matched against the served model id (substring match, longest key wins).
+# Final numbers should be reconciled with each vendor's invoice / usage export.
+models:
+  gpt-4.1-mini:      {input: 0.0, output: 0.0}
+  gpt-4.1:           {input: 0.0, output: 0.0}
+  gpt-5:             {input: 0.0, output: 0.0}
+  claude-sonnet-4-5: {input: 0.0, output: 0.0}
+  claude-opus-4-1:   {input: 0.0, output: 0.0}
+  gemini-2.5-flash:  {input: 0.0, output: 0.0}
+  gemini-2.5-pro:    {input: 0.0, output: 0.0}
+
+# Per-system markup applied on top of list price when cost is computed (not reported).
+# e.g. openrouter: 0.055
+markup:
+  openrouter: 0.055

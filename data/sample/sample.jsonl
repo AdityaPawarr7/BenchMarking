@@ -1,0 +1,10 @@
+{"id": "sample-0", "prompt": "A train travels 60 miles per hour for 3 hours. How many miles does it travel?\n\nGive the final answer as '#### <number>'.", "answer": "180", "scorer": "numeric"}
+{"id": "sample-1", "prompt": "Sara has 12 apples and gives away 5. She then buys 8 more. How many apples does she have?\n\nGive the final answer as '#### <number>'.", "answer": "15", "scorer": "numeric"}
+{"id": "sample-2", "prompt": "What is 17 multiplied by 23?\n\nGive the final answer as '#### <number>'.", "answer": "391", "scorer": "numeric"}
+{"id": "sample-3", "prompt": "A shirt costs $40 and is on sale for 25% off. What is the sale price in dollars?\n\nGive the final answer as '#### <number>'.", "answer": "30", "scorer": "numeric"}
+{"id": "sample-4", "prompt": "If 3x + 7 = 22, what is x?\n\nGive the final answer as '#### <number>'.", "answer": "5", "scorer": "numeric"}
+{"id": "sample-5", "prompt": "Which planet is known as the Red Planet?\nA. Venus\nB. Mars\nC. Jupiter\nD. Saturn\n\nAnswer as 'Answer: X'.", "answer": "B", "scorer": "mc"}
+{"id": "sample-6", "prompt": "What is the chemical symbol for gold?\nA. Ag\nB. Gd\nC. Au\nD. Go\n\nAnswer as 'Answer: X'.", "answer": "C", "scorer": "mc"}
+{"id": "sample-7", "prompt": "Which data structure uses FIFO order?\nA. Stack\nB. Queue\nC. Tree\nD. Heap\n\nAnswer as 'Answer: X'.", "answer": "B", "scorer": "mc"}
+{"id": "sample-8", "prompt": "Summarize in one sentence why caching reduces API cost.", "answer": "Caching serves repeated requests without calling the model again, so fewer billed tokens are used.", "scorer": "judge"}
+{"id": "sample-9", "prompt": "Explain in two sentences what an LLM router does.", "answer": "An LLM router sends each request to a model chosen for that request, balancing cost, speed and quality.", "scorer": "judge"}

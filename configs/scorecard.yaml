@@ -1,0 +1,17 @@
+# Composite scorecard weights. Fix these BEFORE running (pre-registration).
+# Each metric is min-max scaled to 0-100 across systems; "lower" metrics are inverted.
+weights:
+  efficiency: 0.35   # Track B: cost per correct answer (lower) + quality retained (higher)
+  cost: 0.20         # Track A: effective markup (lower)
+  speed: 0.25        # Track A: TTFT overhead p50 + p99 (lower), throughput (higher)
+  reliability: 0.15  # success rate (higher)
+  features: 0.05     # feature parity checklist share (higher)
+
+# Sensitivity check: alternative weightings the ranking should survive.
+alternatives:
+  cost_heavy:  {efficiency: 0.30, cost: 0.35, speed: 0.20, reliability: 0.10, features: 0.05}
+  speed_heavy: {efficiency: 0.25, cost: 0.15, speed: 0.40, reliability: 0.15, features: 0.05}
+
+# Feature parity checklist, filled in by hand (true/false) per system.
+features: [streaming, tool_calls, json_mode, vision, prompt_caching, byok, fallbacks, observability]
+feature_matrix: {}

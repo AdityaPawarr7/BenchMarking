@@ -1,0 +1,11 @@
+baseline: direct-small
+model_alias: small
+shapes:
+  - {name: tiny,  input_tokens: 100,  output_tokens: 20}
+  - {name: short, input_tokens: 1000, output_tokens: 60}
+stream_modes: [true, false]
+requests_per_cell: 30
+warmup_requests: 3
+concurrency: 8
+temperature: 0
+nonce: true
