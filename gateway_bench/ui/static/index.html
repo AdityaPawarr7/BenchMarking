@@ -266,7 +266,7 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
             <label for="refModel" class="lbl">Concentrate's name for this model</label>
             <input type="text" id="refModel" class="full" style="margin-top:0" list="refModelList" spellcheck="false">
             <datalist id="refModelList"></datalist>
-            <div class="small muted" id="refHelp" style="margin-top:4px">Concentrate may name models differently from OpenRouter. The pre-run check will tell you if this ID is wrong.</div>
+            <div class="small muted" id="refHelp" style="margin-top:4px">Filled in for you: Concentrate uses dashes in version numbers (claude-opus-5-5, not 5.5). The pre-run check confirms it.</div>
           </div>
           <label for="upSel" style="margin-top:10px">Served by</label>
           <select id="upSel" class="full"><option value="">Any provider (each gateway decides)</option></select>
@@ -675,7 +675,7 @@ async function onModelChange() {
   $("#modelCustom").classList.toggle("hidden", v !== "__custom__");
   const model = currentModel();
   $("#refRow").classList.toggle("hidden", !model);
-  if (!$("#refModel").dataset.touched) $("#refModel").value = model;
+  if (!$("#refModel").dataset.touched) $("#refModel").value = guessRefName(model);
   const up = $("#upSel");
   const id = ++mstate.reqId;
   if (!model) {
@@ -760,11 +760,26 @@ $("#upSel").addEventListener("change", () => { delete $("#directId").dataset.tou
 $("#directId").addEventListener("input", () => { $("#directId").dataset.touched = "1"; updateSysModels(); });
 $("#refModel").addEventListener("input", () => { $("#refModel").dataset.touched = $("#refModel").value ? "1" : ""; if (!$("#refModel").value) delete $("#refModel").dataset.touched; updateSysModels(); });
 $("#modelSel").addEventListener("change", () => { delete $("#refModel").dataset.touched; });
+// Concentrate writes versions with dashes ("anthropic/claude-opus-5-5") where OpenRouter uses dots
+// ("anthropic/claude-opus-5.5"). Prefer an exact match from Concentrate's own model list; otherwise
+// swap dots for dashes in the model part. The pre-run check confirms the guess.
+const normId = id => String(id || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+function guessRefName(model) {
+  if (!model) return "";
+  const ids = mstate.refIds || [];
+  const hit = ids.find(id => id === model) || ids.find(id => normId(id) === normId(model))
+    || ids.find(id => normId(id.split("/").pop()) === normId(model.split("/").pop()));
+  if (hit) return hit;
+  const i = model.indexOf("/");
+  return i < 0 ? model.replace(/\./g, "-") : model.slice(0, i + 1) + model.slice(i + 1).replace(/\./g, "-");
+}
 async function loadRefModels() {
   if (state.mode !== "live") { $("#refModelList").innerHTML = ""; return; }
   try {
     const r = await api("/api/ref-models");
+    mstate.refIds = r.ids || [];
     $("#refModelList").innerHTML = (r.ids || []).map(id => `<option value="${esc(id)}">`).join("");
+    if (currentModel() && !$("#refModel").dataset.touched) { $("#refModel").value = guessRefName(currentModel()); updateSysModels(); }
     if (r.ids && r.ids.length) $("#refHelp").textContent = `Concentrate lists ${r.ids.length} models; start typing to pick one. The pre-run check confirms it works.`;
   } catch (e) {}
 }
