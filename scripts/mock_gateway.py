@@ -15,7 +15,8 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-def make_handler(latency_ms: float, tok_ms: float, fail_rate: float, accuracy: float, price_per_mtok: float, name: str):
+def make_handler(latency_ms: float, tok_ms: float, fail_rate: float, accuracy: float, price_per_mtok: float, name: str,
+                 known_models=None, report_cost: bool = True):
     class H(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -25,6 +26,10 @@ def make_handler(latency_ms: float, tok_ms: float, fail_rate: float, accuracy: f
         def do_POST(self):
             n = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(n) or b"{}")
+            if known_models is not None and body.get("model") not in known_models:
+                self._json(404, {"error": {"code": "model_not_found", "type": "invalid_request_error",
+                                           "message": f"The model '{body.get('model')}' does not exist"}})
+                return
             if random.random() < fail_rate:
                 self._json(503, {"error": {"message": "mock upstream unavailable"}})
                 return
@@ -37,10 +42,11 @@ def make_handler(latency_ms: float, tok_ms: float, fail_rate: float, accuracy: f
                 words = (words * (max_tokens // max(1, len(words)) + 1))[:max_tokens]
             in_tok = max(1, len(prompt) // 4)
             out_tok = len(words)
-            usage = {"prompt_tokens": in_tok, "completion_tokens": out_tok, "total_tokens": in_tok + out_tok,
-                     "cost": (in_tok + out_tok) * price_per_mtok / 1e6}
+            usage = {"prompt_tokens": in_tok, "completion_tokens": out_tok, "total_tokens": in_tok + out_tok}
+            if report_cost:
+                usage["cost"] = (in_tok + out_tok) * price_per_mtok / 1e6
             model = body.get("model", "mock")
-            served = f"{name}/{model}" if model in ("auto", "router") else model
+            served = f"{name}/{model}" if model in ("auto", "router", "openrouter/auto") else model
             if not body.get("stream"):
                 self._json(200, {"id": "mock", "model": served, "usage": usage,
                                  "choices": [{"index": 0, "message": {"role": "assistant", "content": " ".join(words)}}]})

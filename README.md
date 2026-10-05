@@ -68,6 +68,17 @@ gbench ui                         # open http://127.0.0.1:8765
   and the direct-call baseline goes to that same provider (`configs/providers.yaml`; add
   `DEEPSEEK_API_KEY`, `NOVITA_API_KEY`, `ZAI_API_KEY` as needed). Concentrate's pin format is a
   TODO in `configs/systems.yaml`; until it's set the UI warns that its upstream may differ.
+- **Pre-run check:** before each test, one tiny request goes to each system with the exact model and
+  settings. If Concentrate or OpenRouter rejects it (wrong model name, bad key, disabled upstream
+  account), the run stops with the reason and a hint instead of failing every request. Failures
+  during a run show in an **Errors** panel and mark the run "Done with errors".
+- **Concentrate's model name:** if Concentrate names a model differently from OpenRouter, set
+  "Concentrate's name for this model" (suggestions come from Concentrate's `/models` list if it has one).
+- **Cost:** OpenRouter reports billed cost per request. Concentrate doesn't (yet), so its cost is
+  estimated from OpenRouter's list price for the model it served and labelled as an estimate.
+- **Grader:** open-ended questions can be graded through OpenRouter (pick a grader model), so no
+  OpenAI key is needed. Direct-provider baselines and single-model reference points switch off
+  automatically when their keys aren't set.
 - Every run is saved under `results/ui/<run-id>/` (raw JSONL + the exact configs used), so
   `gbench report results/ui/<run-id>` produces the same analysis as a Markdown report.
 

@@ -19,10 +19,12 @@ class PriceBook:
         return cls(raw.get("models", {}) or {}, raw.get("markup", {}) or {})
 
     def lookup(self, model: str | None) -> dict[str, float] | None:
-        if not model:
+        if not isinstance(model, str) or not model:
             return None
         m = model.lower()
         for key, price in self.models.items():
+            if not (price.get("input") or price.get("output")):
+                continue            # unfilled placeholder (0/0) is "unknown", not "free"
             if key.lower() in m:
                 return price
         return None
@@ -37,8 +39,11 @@ class PriceBook:
         """Return (cost_usd, source) for a result record."""
         if rec.get("cost_reported") is not None:
             return float(rec["cost_reported"]), "reported"
-        model = rec.get("model_served") or rec.get("model_requested")
-        base = self.list_cost(model, rec.get("input_tokens"), rec.get("output_tokens"))
+        model = next((m for m in (rec.get("model_served"), rec.get("model_requested")) if isinstance(m, str) and m), None)
+        it, ot = rec.get("input_tokens"), rec.get("output_tokens")
+        if it is None or ot is None or it != it or ot != ot:      # missing or NaN (failed request)
+            return None, "unknown"
+        base = self.list_cost(model, it, ot)
         if base is None:
             return None, "unknown"
         return base * (1 + self.markup.get(rec.get("system", ""), 0.0)), "list_price"

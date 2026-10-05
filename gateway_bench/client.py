@@ -120,7 +120,7 @@ async def _do_plain(client, url, headers, body, res: CallResult, t0: float, time
     res.ttft_ms = res.e2e_ms
     res.status = r.status_code
     if r.status_code >= 400:
-        res.error = f"status {r.status_code}: {r.text[:500]}"
+        res.error = f"status {r.status_code}: {r.text[:4000]}"
         return
     data = r.json()
     res.model_served = data.get("model")
@@ -142,7 +142,7 @@ async def _do_stream(client, url, headers, body, res: CallResult, t0: float, tim
         res.meta["gateway_headers"] = _interesting_headers(r.headers)
         if r.status_code >= 400:
             txt = (await r.aread()).decode("utf-8", "replace")
-            res.error = f"status {r.status_code}: {txt[:500]}"
+            res.error = f"status {r.status_code}: {txt[:4000]}"
             return
         async for line in r.aiter_lines():
             if not line or not line.startswith("data:"):

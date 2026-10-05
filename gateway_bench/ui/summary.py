@@ -1,7 +1,9 @@
 """Build the JSON the UI renders: head-to-head metrics, chart series and tables for one run."""
 from __future__ import annotations
 
+import json
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -68,8 +70,84 @@ def _cdf(values: pd.Series, points: int = 120) -> list[list[float]]:
     return [[float(x), float(q)] for x, q in zip(xs, qs)]
 
 
+def readable_error(err) -> str:
+    """'status 400: {json}' -> 'status 400: <innermost message>' (OpenRouter nests the upstream
+    provider's error as a JSON string in error.metadata.raw)."""
+    if not isinstance(err, str) or not err:
+        return "unknown error"
+    head, _, rest = err.partition(": ")
+    i = rest.find("{")
+    if not head.startswith("status") or i < 0:
+        return err[:400]
+    try:
+        body = json.loads(rest[i:])
+    except ValueError:
+        # truncated JSON: pull "message" values out directly (outer first, innermost last)
+        msgs = [m.replace('\\"', '"') for m in re.findall(r'\\?"message\\?"\s*:\s*\\?"((?:[^"\\]|\\.)*?)\\?"', rest)]
+        if not msgs:
+            return err[:400]
+        return f"{head}: {msgs[0]}" + (f" (upstream: {msgs[-1]})" if len(msgs) > 1 else "")
+    e = body.get("error", body) if isinstance(body, dict) else {}
+    msg = e.get("message") if isinstance(e, dict) else None
+    raw = (e.get("metadata") or {}).get("raw") if isinstance(e, dict) else None
+    if isinstance(raw, str):
+        try:
+            inner = json.loads(raw)
+            inner = inner.get("error", inner)
+            if isinstance(inner, dict) and inner.get("message"):
+                msg = f"{msg} (upstream: {inner['message']})" if msg else inner["message"]
+        except ValueError:
+            pass
+    return f"{head}: {msg}" if msg else err[:400]
+
+
+def _catalog_price(catalog: dict, model) -> dict | None:
+    if not catalog or not isinstance(model, str) or not model:
+        return None
+    if model in catalog:
+        return catalog[model]
+    tail = model.split("/", 1)[-1]
+    hits = [v for k, v in catalog.items() if k.split("/", 1)[-1] == tail]
+    return hits[0] if len(hits) == 1 else None
+
+
+def fill_costs(df: pd.DataFrame, prices: PriceBook, catalog: dict | None) -> pd.DataFrame:
+    """cost_usd per row: billed cost if reported, else configured list price, else the
+    OpenRouter catalog list price for the served model (marked as an estimate)."""
+    costs, srcs = [], []
+    for r in df.to_dict("records"):
+        rep = r.get("cost_reported")
+        if rep is not None and rep == rep:
+            costs.append(float(rep)); srcs.append("reported"); continue
+        c, src = prices.cost({**r, "cost_reported": None})
+        if c is None:
+            pr = (_catalog_price(catalog or {}, r.get("model_served"))
+                  or _catalog_price(catalog or {}, r.get("model_requested")))
+            it, ot = r.get("input_tokens"), r.get("output_tokens")
+            if pr and it == it and ot == ot and it is not None and ot is not None:
+                c, src = (it * pr["input"] + ot * pr["output"]) / 1e6, "catalog_estimate"
+        costs.append(c); srcs.append(src)
+    df = df.copy()
+    df["cost_usd"], df["cost_source"] = costs, srcs
+    return df
+
+
+def _health(df: pd.DataFrame) -> list[dict]:
+    rows = []
+    d = df[df["meta.warmup"] != True]  # noqa: E712
+    for track, g in d.groupby("track"):
+        key = "meta.label" if track == "B" else "system"
+        for name, s in g.groupby(key):
+            failed = s[s.ok != True]  # noqa: E712
+            top = failed.error.map(readable_error).value_counts().head(3)
+            rows.append({"track": track, "system": name, "n": int(len(s)), "failed": int(len(failed)),
+                         "by_status": {str(k): int(v) for k, v in failed.status.fillna("none").astype(str).value_counts().items()},
+                         "top_errors": [{"message": m, "count": int(c)} for m, c in top.items()]})
+    return rows
+
+
 def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "concentrate",
-                  rival: str = "openrouter", load_cfg: dict | None = None) -> dict:
+                  rival: str = "openrouter", load_cfg: dict | None = None, catalog: dict | None = None) -> dict:
     run_dir = Path(run_dir)
     files = sorted(run_dir.glob("*.jsonl"))
     if not files:
@@ -81,9 +159,23 @@ def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "conc
         if c not in df:
             df[c] = np.nan
     prices = PriceBook.load(prices_path)
+    df = fill_costs(df, prices, catalog)
     load_cfg = load_cfg or {}
     out: dict[str, Any] = {"empty": False, "ref": ref, "rival": rival, "metrics": []}
     metrics = out["metrics"]
+    health = _health(df)
+    out["health"] = health
+    out["errors"] = [h for h in health if h["failed"]]
+
+    def cost_note(frames: dict) -> str:
+        est = [nm for nm, f in frames.items() if f.cost_source.isin(["catalog_estimate", "list_price"]).any()]
+        unk = [nm for nm, f in frames.items() if len(f) and f.cost_usd.isna().all()]
+        parts = []
+        if est:
+            parts.append(f"{', '.join(est)}: estimated from list price (no billed cost returned)")
+        if unk:
+            parts.append(f"{', '.join(unk)}: cost unknown")
+        return "; ".join(parts) or "billed cost reported by each gateway"
 
     # ---------------- Track A
     ta = df[(df.track == "A") & (df["meta.warmup"] != True)].copy()  # noqa: E712
@@ -112,11 +204,14 @@ def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "conc
                                        float(tps_r.median()), float(tps_v.median()), ci=[lo, hi]))
             cpm_r, cpm_v = A._cost_per_mtok(r_ok), A._cost_per_mtok(v_ok)
             metrics.append(_metric("cost_mtok", "Cost per 1M tokens, same model", "$", "lower", "A", ref, rival,
-                                   cpm_r, cpm_v, note="billed cost when reported, else list price"))
+                                   cpm_r, cpm_v, note=cost_note({ref: r_ok, rival: v_ok})))
         r_all, v_all = ta[ta.system == ref], ta[ta.system == rival]
         if len(r_all) and len(v_all):
-            metrics.append(_metric("success_a", "Success rate", "%", "higher", "A", ref, rival,
-                                   float(r_all.ok.mean() * 100), float(v_all.ok.mean() * 100)))
+            sr, sv = float(r_all.ok.mean() * 100), float(v_all.ok.mean() * 100)
+            m = _metric("success_a", "Success rate", "%", "higher", "A", ref, rival, sr, sv)
+            if sr == 0 and sv == 0:
+                m.update(winner=None, note="no request succeeded on either side, see Errors")
+            metrics.append(m)
         out["cdf"] = {}
         for (shape, stream), g in ok.groupby(["meta.shape", "stream"]):
             key = f"{shape}|{'stream' if stream else 'plain'}"
@@ -146,10 +241,11 @@ def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "conc
             def cpk(frame):
                 c = frame.cost_usd.sum(min_count=1)
                 return float(c / len(frame) * 1000) if len(frame) and c == c else None
+            cn = cost_note({ref: r_b[r_b.ok == True], rival: v_b[v_b.ok == True]})  # noqa: E712
             metrics.append(_metric("cost_correct", "Cost per 1,000 correct answers", "$", "lower", "B", ref, rival,
-                                   cpc(r_b), cpc(v_b)))
+                                   cpc(r_b), cpc(v_b), note=cn))
             metrics.append(_metric("cost_1k", "Cost per 1,000 requests", "$", "lower", "B", ref, rival,
-                                   cpk(r_b), cpk(v_b)))
+                                   cpk(r_b), cpk(v_b), note=cn))
         if not b_tab.empty:
             out["frontier"] = _records(b_tab[["workload", "label", "role", "accuracy", "acc_lo", "acc_hi",
                                               "cost_per_1k_usd", "pareto", "n"]])

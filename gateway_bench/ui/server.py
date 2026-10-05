@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from ..config import System, fill_pin, load_systems, load_yaml
-from .summary import build_summary, clean
+from .summary import build_summary, clean, readable_error
 
 REF, RIVAL, BASELINE = "concentrate", "openrouter", "direct-openai"
 STATIC = Path(__file__).parent / "static"
@@ -88,6 +88,8 @@ class RunOptions(BaseModel):
     model: str = ""            # catalog id, "author/model" (OpenRouter style)
     upstream: str = ""         # provider slug to pin, e.g. "novita"; empty = gateway decides
     direct_model: str = ""     # id for the direct-provider baseline; empty = derived
+    ref_model: str = ""        # Concentrate's own id for the model, when it names it differently
+    judge_model: str = ""      # grader for open-ended questions, called through OpenRouter; empty = skip them
 
 
 class Run:
@@ -106,6 +108,7 @@ class Run:
         self.task: asyncio.Task | None = None
         self._last_save = 0.0
         self.models: dict[str, Any] = {}
+        self.preflight: list[dict[str, Any]] = []
 
     def log(self, msg: str) -> None:
         line = f"{time.strftime('%H:%M:%S')}  {msg.strip()}"
@@ -122,7 +125,8 @@ class Run:
     def state(self) -> dict:
         return clean({"id": self.id, "status": self.status, "created": self.created, "started": self.started,
                       "finished": self.finished, "error": self.error, "phases": self.phases,
-                      "options": self.opts.model_dump(), "models": self.models, "logs": self.logs[-60:]})
+                      "options": self.opts.model_dump(), "models": self.models,
+                      "preflight": self.preflight, "logs": self.logs[-60:]})
 
     def save(self) -> None:
         self._last_save = time.time()
@@ -178,8 +182,8 @@ def resolve_model_setup(o: "RunOptions", systems: dict[str, System], mode: str, 
 
     alias = "__run__"
     for s_ in gw:
-        s_.models[alias] = o.model
-        info["ids"][s_.name] = o.model
+        s_.models[alias] = (o.ref_model.strip() or o.model) if s_.name == REF else o.model
+        info["ids"][s_.name] = s_.models[alias]
         if o.upstream:
             if s_.pin:
                 s_.extra_body = {**s_.extra_body, **fill_pin(s_.pin, o.upstream)}
@@ -209,6 +213,56 @@ def resolve_model_setup(o: "RunOptions", systems: dict[str, System], mode: str, 
         info["ids"][baseline.name] = baseline.models[alias]
     info["baseline"] = baseline.name if baseline else None
     return alias, gw, baseline, info
+
+
+async def preflight(run: Run, test: str, checks: list[tuple[System, str, bool]]) -> list[str]:
+    """Send one tiny request per (system, model) with the run's exact settings. Returns names that
+    failed. Results go into run.preflight so the page can show them."""
+    from ..client import chat, make_client
+    failed = []
+    async with make_client(max_connections=8) as client:
+        results = await asyncio.gather(*(chat(client, s_, model, [{"role": "user", "content": "Reply with the word OK."}],
+                                              max_tokens=8, stream=False, seed=None) for s_, model, _ in checks))
+    for (s_, model, required), r in zip(checks, results):
+        entry = {"test": test, "system": s_.name, "model": model, "ok": r.ok, "status": r.status,
+                 "ms": round(r.e2e_ms) if r.e2e_ms else None, "served": r.model_served,
+                 "error": readable_error(r.error) if r.error else None, "required": required}
+        run.preflight.append(entry)
+        if r.ok:
+            run.log(f"check ok: {s_.name} {model} ({entry['ms']} ms, served {r.model_served})")
+        else:
+            run.log(f"check FAILED: {s_.name} {model}: {entry['error']}")
+            failed.append(s_.name)
+    run.save()
+    return failed
+
+
+def _core_failures(run: Run, threshold: float = 0.05) -> bool:
+    """True if Concentrate or OpenRouter failed more than `threshold` of requests in any test."""
+    for fp in run.dir.glob("*.jsonl"):
+        tot: dict[str, int] = {}
+        bad: dict[str, int] = {}
+        with open(fp, encoding="utf-8") as f:
+            for line in f:
+                r = json.loads(line)
+                if (r.get("meta") or {}).get("warmup"):
+                    continue
+                who = (r.get("meta") or {}).get("label") or r.get("system")
+                if who not in (REF, RIVAL):
+                    continue
+                tot[who] = tot.get(who, 0) + 1
+                bad[who] = bad.get(who, 0) + (0 if r.get("ok") else 1)
+        if any(bad[k] / tot[k] > threshold for k in tot if tot[k]):
+            return True
+    return False
+
+
+def _fail_msg(run: Run, names: list[str]) -> str:
+    bits = []
+    for e in run.preflight:
+        if e["system"] in names and not e["ok"]:
+            bits.append(f"{e['system']} ({e['model']}): {e['error']}")
+    return "Stopped before the test: " + " | ".join(bits)
 
 
 async def execute(run: Run) -> None:
@@ -244,7 +298,14 @@ async def execute(run: Run) -> None:
                 names_sys.append(base_sys)
             elif o.include_baseline:
                 run.log("[skip] no direct-provider baseline available, so added delay vs direct won't be shown")
-            cfg = {**ta_base, "baseline": base_sys.name if (o.include_baseline and base_sys) else None,
+            bad = await preflight(run, "Speed & fees", [(s_, s_.model_for(alias), s_.name in (REF, RIVAL)) for s_ in names_sys])
+            if any(n in (REF, RIVAL) for n in bad):
+                raise RuntimeError(_fail_msg(run, [n for n in bad if n in (REF, RIVAL)]))
+            if base_sys and base_sys.name in bad:
+                names_sys = [x for x in names_sys if x.name != base_sys.name]
+                base_sys = None
+                run.log("[skip] direct baseline failed its check; continuing without it")
+            cfg = {**ta_base, "baseline": base_sys.name if (o.include_baseline and base_sys and base_sys in names_sys) else None,
                    "model_alias": alias, "stream_modes": o.stream_modes or [True],
                    "requests_per_cell": o.requests_per_cell, "warmup_requests": o.warmup}
             if o.shapes:
@@ -259,14 +320,28 @@ async def execute(run: Run) -> None:
 
         if o.track_b:
             base = load_yaml(cfg_dir / "track_b.yaml")
+            sys_b = copy.deepcopy(systems)
             wls = [w for w in base.get("workloads", []) if not o.workloads or w["name"] in o.workloads]
             cfg = {**base, "workloads": [{**w, "max_items": o.max_items} for w in wls], "routers": [REF, RIVAL],
                    "baselines": base.get("baselines", []) if o.include_model_baselines else []}
+            if o.judge_model:
+                sys_b[RIVAL].models["__judge__"] = o.judge_model
+                cfg["judge"] = {"system": RIVAL, "alias": "__judge__"}
+            elif o.mode == "live":
+                cfg["judge"] = None
+                run.log("[info] no grader chosen: open-ended questions will be left ungraded")
+            checks = [(sys_b[REF], sys_b[REF].router_model, True), (sys_b[RIVAL], sys_b[RIVAL].router_model, True)]
+            if o.judge_model:
+                checks.append((sys_b[RIVAL], o.judge_model, True))
+            bad = await preflight(run, "Routing quality", checks)
+            if bad:
+                raise RuntimeError(_fail_msg(run, bad))
             path = _write_yaml(run.dir / "cfg_track_b.yaml", cfg)
             run.phases["Track B: routing quality"] = {"done": 0, "total": 0, "status": "running"}
             run.log("Track B started")
-            await run_track_b(systems, path, run.dir, log=run.log, progress=run.progress("Track B: routing quality"),
-                              prices_path=cfg_dir / "prices.yaml" if (cfg_dir / "prices.yaml").exists() else ROOT / "configs/prices.yaml",
+            await run_track_b(sys_b, path, run.dir, log=run.log, progress=run.progress("Track B: routing quality"),
+                              prices_path=run.dir / "prices.yaml" if (run.dir / "prices.yaml").exists() else (
+                                  cfg_dir / "prices.yaml" if (cfg_dir / "prices.yaml").exists() else ROOT / "configs/prices.yaml"),
                               out_path=run.dir / "track_b.jsonl")
             run.phases["Track B: routing quality"]["status"] = "done"
             run.save()
@@ -275,6 +350,10 @@ async def execute(run: Run) -> None:
             base = load_yaml(cfg_dir / "load.yaml")
             cfg = {**base, "rates_rps": o.rates or base["rates_rps"], "step_duration_s": o.step_duration_s,
                    "model_alias": alias}
+            if not o.track_a:
+                bad = await preflight(run, "Load", [(s_, s_.model_for(alias), True) for s_ in gw])
+                if bad:
+                    raise RuntimeError(_fail_msg(run, bad))
             path = _write_yaml(run.dir / "cfg_load.yaml", cfg)
             run.phases["Load test"] = {"done": 0, "total": 0, "status": "running"}
             run.log("Load test started")
@@ -282,8 +361,8 @@ async def execute(run: Run) -> None:
                            progress=run.progress("Load test"), out_path=run.dir / "load.jsonl")
             run.phases["Load test"]["status"] = "done"
 
-        run.status = "done"
-        run.log("Run complete")
+        run.status = "done_with_errors" if _core_failures(run) else "done"
+        run.log("Run complete" + (" with errors (see Errors)" if run.status == "done_with_errors" else ""))
     except asyncio.CancelledError:
         run.status = "cancelled"
         run.log("Run cancelled")
@@ -397,6 +476,8 @@ def get_config():
             "shapes": ta.get("shapes", []),
             "workloads": wls,
             "model_baselines": tb.get("baselines", []),
+            "model_baselines_ready": [b for b in tb.get("baselines", [])
+                                      if b.split(":")[0] in systems and (mode == "demo" or systems[b.split(":")[0]].available)],
             "load": {"rates": ld.get("rates_rps", []), "step_duration_s": ld.get("step_duration_s", 60),
                      "slo_p99_ttft_ms": ld.get("slo_p99_ttft_ms")},
             "defaults": {"requests_per_cell": ta.get("requests_per_cell", 20) if mode == "demo" else 20,
@@ -421,6 +502,31 @@ def list_models(refresh: bool = False):
                      "context": m.get("context_length")})
     rows.sort(key=lambda r: (authors.index(r["author"]), -r["created"]))
     return {"models": rows, "error": err}
+
+
+_REF_MODELS: dict[str, Any] = {"t": 0.0, "ids": None}
+
+
+@app.get("/api/ref-models")
+def ref_models():
+    """Model ids Concentrate lists at GET {base_url}/models (OpenAI-style), if it offers that."""
+    if _REF_MODELS["ids"] is not None and time.time() - _REF_MODELS["t"] < 3600:
+        return {"ids": _REF_MODELS["ids"], "error": None}
+    import httpx
+    try:
+        s_ = load_systems(_cfg_dir("live") / "systems.yaml")[REF]
+        if not s_.available:
+            return {"ids": [], "error": f"{s_.api_key_env} not set"}
+        from ..client import build_headers
+        r = httpx.get(f"{s_.base_url}/models", headers=build_headers(s_), timeout=15)
+        r.raise_for_status()
+        body = r.json()
+        items = body.get("data", body) if isinstance(body, dict) else body
+        ids = sorted({(x.get("id") if isinstance(x, dict) else str(x)) for x in items if x})
+    except Exception as e:  # noqa: BLE001
+        return {"ids": [], "error": f"Concentrate model list unavailable: {e}"}
+    _REF_MODELS.update(t=time.time(), ids=ids)
+    return {"ids": ids, "error": None}
 
 
 @app.get("/api/models/{author}/{slug}/providers")
@@ -507,7 +613,15 @@ def get_results(run_id: str):
     load_cfg = load_yaml(run_dir / "cfg_load.yaml") if (run_dir / "cfg_load.yaml").exists() else {}
     prices = run_dir / "prices.yaml" if (run_dir / "prices.yaml").exists() else (
         cfg_dir / "prices.yaml" if (cfg_dir / "prices.yaml").exists() else ROOT / "configs/prices.yaml")
-    summary = build_summary(run_dir, prices, REF, RIVAL, load_cfg)
+    catalog = {}
+    if mode == "live":
+        data, _ = fetch_catalog()
+        for m in data:
+            pr = m.get("pricing") or {}
+            pi, po = _per_m(pr.get("prompt")), _per_m(pr.get("completion"))
+            if pi is not None and po is not None and (pi or po):
+                catalog[m["id"]] = {"input": pi, "output": po}
+    summary = build_summary(run_dir, prices, REF, RIVAL, load_cfg, catalog=catalog)
     summary["mode"] = mode
     summary["models"] = st.get("models") or {}
     return JSONResponse(summary)

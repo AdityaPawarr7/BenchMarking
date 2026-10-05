@@ -141,6 +141,13 @@ input.full { margin-top: 6px; }
 .pill.running, .pill.queued { color: var(--accent-ink); background: var(--ref-soft); }
 .pill.done { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
 .pill.failed, .pill.interrupted { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.pill.done_with_errors { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.checks { display: grid; gap: 6px; margin-bottom: 14px; }
+.checkrow { display: grid; grid-template-columns: 20px 150px 1fr; gap: 8px; font-size: 12.5px; align-items: start; }
+.checkrow .ic { font-weight: 700; }
+.checkrow .ic.ok { color: var(--good); } .checkrow .ic.no { color: var(--bad); }
+.checkrow .msg { color: var(--text-2); word-break: break-word; }
+td.wrap { white-space: normal; max-width: 520px; color: var(--text-2); font-size: 12px; }
 .pill.cancelled { color: var(--text-2); background: var(--surface-2); }
 .runhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; }
 .runhead h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
@@ -255,6 +262,12 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
           <label for="modelSel">Model</label>
           <select id="modelSel" class="full"><option value="">Loading models…</option></select>
           <input type="text" id="modelCustom" class="full hidden" placeholder="author/model, e.g. deepseek/deepseek-chat" spellcheck="false">
+          <div class="hidden" id="refRow" style="margin-top:10px">
+            <label for="refModel" class="lbl">Concentrate's name for this model</label>
+            <input type="text" id="refModel" class="full" style="margin-top:0" list="refModelList" spellcheck="false">
+            <datalist id="refModelList"></datalist>
+            <div class="small muted" id="refHelp" style="margin-top:4px">Concentrate may name models differently from OpenRouter. The pre-run check will tell you if this ID is wrong.</div>
+          </div>
           <label for="upSel" style="margin-top:10px">Served by</label>
           <select id="upSel" class="full"><option value="">Any provider (each gateway decides)</option></select>
           <div class="hidden" id="directRow" style="margin-top:10px">
@@ -294,7 +307,11 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
             <div class="test-b">
               <div><span class="lbl">Question sets</span><div class="chips" id="wlChips"></div></div>
               <div class="inline"><label for="maxItems">Questions per set (max)</label><input type="number" id="maxItems" min="1" max="5000" value="50"></div>
+              <div><label for="judgeSel" class="lbl">Grader for open-ended questions</label>
+                <select id="judgeSel" class="full"><option value="">Skip them (score auto-graded questions only)</option></select>
+                <div class="small muted" style="margin-top:4px">Called through OpenRouter, blind to which router wrote the answer.</div></div>
               <label class="check"><input type="checkbox" id="incModels" checked> Include single-model reference points</label>
+              <div class="small muted hidden" id="incModelsNote">Needs direct OpenAI / Anthropic / Google keys, so it's off for now.</div>
             </div>
           </div>
 
@@ -338,6 +355,7 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
       <div class="demo-banner hidden" id="demoBanner"><b>Demo data.</b> These numbers come from mock gateways on your machine. They show how the page works and say nothing about the real services.</div>
       <div class="errbox hidden" id="errBox"></div>
       <div class="card-b" style="padding-top:0">
+        <div id="checks"></div>
         <div class="phases" id="phases"></div>
         <details class="log"><summary>Run log</summary><pre id="log"></pre></details>
       </div>
@@ -349,6 +367,12 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
           <div class="tally" id="tally"></div>
           <div class="verdict-text" id="verdictText"></div>
         </div>
+      </section>
+
+      <section class="card hidden" id="errorsSec">
+        <div class="section-h"><h3>Errors</h3>
+          <div class="desc">Requests that failed, grouped by test and system. Failed requests are left out of every speed and accuracy number.</div></div>
+        <div class="tablewrap"><table id="tableErr"></table></div>
       </section>
 
       <div class="metrics" id="metrics"></div>
@@ -516,6 +540,10 @@ function renderForm() {
     wc.appendChild(chip(label, { wl: w.name, items: w.items || 0 }, w.exists && (state.mode === "demo" || w.name === "sample"), !w.exists));
   });
 
+  const refsReady = (m.model_baselines_ready || []).length > 0;
+  $("#incModels").checked = refsReady; $("#incModels").disabled = !refsReady;
+  $("#incModelsNote").classList.toggle("hidden", refsReady);
+  $("#incBase").checked = state.mode === "demo" || (state.config.providers || []).some(p => p.key_set);
   $("#reqs").value = m.defaults.requests_per_cell;
   $("#warm").value = m.defaults.warmup;
   $("#rates").value = (state.mode === "demo" ? m.load.rates : [1, 5, 10]).join(", ");
@@ -542,6 +570,8 @@ function readForm() {
     model: currentModel(),
     upstream: currentModel() ? $("#upSel").value : "",
     direct_model: currentModel() && !$("#directRow").classList.contains("hidden") ? $("#directId").value.trim() : "",
+    ref_model: currentModel() ? $("#refModel").value.trim() : "",
+    judge_model: $("#cB").checked ? $("#judgeSel").value : "",
   };
 }
 
@@ -570,7 +600,7 @@ function updateEstimate() {
   }
   if (o.track_b) {
     const items = $$("#wlChips .chip[aria-pressed='true']").reduce((a, c) => a + Math.min(+c.dataset.items, o.max_items), 0);
-    const cfgs = 2 + (o.include_model_baselines ? m.model_baselines.length : 0);
+    const cfgs = 2 + (o.include_model_baselines ? (m.model_baselines_ready || m.model_baselines).length : 0);
     n += items * cfgs;
   }
   if (o.load) n += 2 * o.rates.reduce((a, r) => a + r * o.step_duration_s, 0);
@@ -580,7 +610,7 @@ function updateEstimate() {
   $("#formMsg").textContent = isActive() ? "A run is in progress." : p[0] || "";
 }
 
-$$(".seg button").forEach(b => b.addEventListener("click", () => { state.mode = b.dataset.mode; renderForm(); loadCatalog(); }));
+$$(".seg button").forEach(b => b.addEventListener("click", () => { state.mode = b.dataset.mode; renderForm(); loadCatalog(); loadRefModels(); }));
 [["#cA", "#tA"], ["#cB", "#tB"], ["#cL", "#tL"]].forEach(([c, t]) =>
   $(c).addEventListener("change", () => { $(t).dataset.off = String(!$(c).checked); updateEstimate(); }));
 $$("#reqs, #warm, #maxItems, #rates, #stepDur, #incBase, #incModels").forEach(el => el.addEventListener("input", updateEstimate));
@@ -622,6 +652,11 @@ async function loadCatalog(refresh = false) {
   });
   html += `<option value="__custom__">Other: type a model ID…</option>`;
   sel.innerHTML = html;
+  const js = $("#judgeSel"), keepJ = js.value;
+  js.innerHTML = `<option value="">Skip them (score auto-graded questions only)</option>` +
+    (state.config.picker_authors || Object.keys(groups)).filter(a => groups[a]).map(a =>
+      `<optgroup label="${esc(AUTHOR_LABEL[a] || a)}">` + groups[a].map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join("") + `</optgroup>`).join("");
+  if ([...js.options].some(o => o.value === keepJ)) js.value = keepJ;
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
   $("#modelNote").innerHTML = res.error
     ? `<div class="note err">${esc(res.error)}. Pick "Other" and type the model ID (author/model).</div>` : "";
@@ -639,6 +674,8 @@ async function onModelChange() {
   const v = $("#modelSel").value;
   $("#modelCustom").classList.toggle("hidden", v !== "__custom__");
   const model = currentModel();
+  $("#refRow").classList.toggle("hidden", !model);
+  if (!$("#refModel").dataset.touched) $("#refModel").value = model;
   const up = $("#upSel");
   const id = ++mstate.reqId;
   if (!model) {
@@ -703,7 +740,7 @@ function updateSysModels() {
     if (!meta) return;
     for (const el of [meta, name, badge]) if (el.dataset.orig == null) { el.dataset.orig = el.textContent; el.dataset.cls = el.className; }
     if (!model) { meta.textContent = meta.dataset.orig; name.textContent = name.dataset.orig; badge.textContent = badge.dataset.orig; badge.className = badge.dataset.cls; return; }
-    if (i < 2) { meta.textContent = model; return; }
+    if (i < 2) { meta.textContent = i === 0 ? ($("#refModel").value.trim() || model) : model; return; }
     // baseline row follows the provider the model is pinned to (or the model's maker)
     if (!live) { name.textContent = "direct (baseline)"; meta.textContent = model; return; }
     if (pv) {
@@ -721,6 +758,16 @@ $("#modelSel").addEventListener("change", () => { delete $("#directId").dataset.
 let customT; $("#modelCustom").addEventListener("input", () => { clearTimeout(customT); customT = setTimeout(() => { delete $("#directId").dataset.touched; onModelChange(); }, 500); });
 $("#upSel").addEventListener("change", () => { delete $("#directId").dataset.touched; onUpstreamChange(); });
 $("#directId").addEventListener("input", () => { $("#directId").dataset.touched = "1"; updateSysModels(); });
+$("#refModel").addEventListener("input", () => { $("#refModel").dataset.touched = $("#refModel").value ? "1" : ""; if (!$("#refModel").value) delete $("#refModel").dataset.touched; updateSysModels(); });
+$("#modelSel").addEventListener("change", () => { delete $("#refModel").dataset.touched; });
+async function loadRefModels() {
+  if (state.mode !== "live") { $("#refModelList").innerHTML = ""; return; }
+  try {
+    const r = await api("/api/ref-models");
+    $("#refModelList").innerHTML = (r.ids || []).map(id => `<option value="${esc(id)}">`).join("");
+    if (r.ids && r.ids.length) $("#refHelp").textContent = `Concentrate lists ${r.ids.length} models; start typing to pick one. The pre-run check confirms it works.`;
+  } catch (e) {}
+}
 
 /* ---------------- history */
 const isActive = () => state.run && ["queued", "running"].includes(state.run.status);
@@ -738,7 +785,7 @@ async function loadHistory() {
     const li = document.createElement("li");
     const o = r.options || {};
     li.innerHTML = `<button type="button" aria-current="${r.id === state.runId}">
-      <span class="h-title">${esc(runTitle(r))}</span><span class="pill ${esc(r.status)}">${esc(r.status)}</span>
+      <span class="h-title">${esc(runTitle(r))}</span><span class="pill ${esc(r.status)}">${esc(statusText(r.status))}</span>
       <span class="h-sub">${o.mode === "demo" ? "Demo · " : "Live · "}${o.model ? esc(o.model) + (o.upstream ? " via " + esc(o.upstream) : "") + " · " : ""}${esc(ago(r.created))} · ${esc(r.id)}</span></button>`;
     li.firstChild.addEventListener("click", () => selectRun(r.id));
     ul.appendChild(li);
@@ -747,6 +794,28 @@ async function loadHistory() {
 $("#refreshHist").addEventListener("click", loadHistory);
 
 /* ---------------- run view */
+function checkHint(c) {
+  const e = (c.error || "").toLowerCase();
+  let h = "";
+  if (/does not exist|model_not_found|not a valid model|unknown model|no endpoints found/.test(e))
+    h = c.system === "concentrate" ? "Concentrate doesn't know this model name. Set “Concentrate's name for this model” under Model and run again."
+      : "This gateway doesn't know this model name. Pick another model or check the ID.";
+  else if (/organization has been disabled|byok|integration/.test(e))
+    h = "The upstream provider rejected the account behind this request. On OpenRouter, check Settings → Integrations for a bring-your-own key, or pick another provider.";
+  else if (/401|unauthorized|invalid api key|incorrect api key/.test(e)) h = "The API key was rejected. Check it in .env and restart gbench ui.";
+  else if (/402|insufficient|credit|balance/.test(e)) h = "Out of credits on this account.";
+  else if (/429|rate limit/.test(e)) h = "Rate limited. Try fewer requests or lower concurrency.";
+  return h ? `<br><span style="color:var(--text)">→ ${esc(h)}</span>` : "";
+}
+const statusText = st => st === "done_with_errors" ? "Done with errors" : st;
+function renderChecks(list) {
+  const el = $("#checks");
+  if (!list.length) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="lbl">Pre-run checks</div><div class="checks">` + list.map(c =>
+    `<div class="checkrow"><span class="ic ${c.ok ? "ok" : "no"}">${c.ok ? "✓" : "✗"}</span>
+     <span><b>${esc(nice(c.system))}</b><br><span class="muted">${esc(c.test)}</span></span>
+     <span class="msg"><code>${esc(c.model)}</code> ${c.ok ? `answered in ${c.ms} ms${c.served ? `, served by <code>${esc(c.served)}</code>` : ""}` : `<b style="color:var(--bad)">failed</b>: ${esc(c.error || "")}${checkHint(c)}`}</span></div>`).join("") + `</div>`;
+}
 async function selectRun(id) {
   state.runId = id; state.summary = null; state.lastPhaseDone = -1;
   try { history.replaceState(null, "", "#run=" + id); } catch (e) {}
@@ -779,7 +848,8 @@ async function refreshRun() {
 function renderRun() {
   const r = state.run, o = r.options || {};
   $("#runTitle").textContent = runTitle(r);
-  const st = $("#runStatus"); st.className = "pill " + r.status; st.textContent = r.status;
+  const st = $("#runStatus"); st.className = "pill " + r.status; st.textContent = statusText(r.status);
+  renderChecks(r.preflight || []);
   $("#runMeta").textContent = `${r.id} · ${o.mode === "demo" ? "demo" : "live"}${r.started ? " · " + dur(r.started, r.finished) : ""}`;
   $("#demoBanner").classList.toggle("hidden", o.mode !== "demo");
   const rm = $("#runModel"), mi = r.models || {};
@@ -808,13 +878,19 @@ $("#cancelBtn").addEventListener("click", async () => { try { await api(`/api/ru
 /* ---------------- results */
 async function loadResults() {
   let s;
-  try { s = await api(`/api/runs/${state.runId}/results`); } catch (e) { return; }
+  try { s = await api(`/api/runs/${state.runId}/results`); }
+  catch (e) {
+    $("#errBox").classList.remove("hidden");
+    $("#errBox").textContent = "Couldn't build the results for this run: " + e.message + ". The raw data is in results/ui/" + state.runId + "/.";
+    return;
+  }
   state.summary = s;
   if (s.empty) { $("#results").classList.add("hidden"); return; }
   $("#results").classList.remove("hidden");
   const mi = s.models || {}, ids = mi.ids || {};
   const lm = mi.model || ids[s.ref];
   $("#latModel").innerHTML = lm ? ` Model: <b>${esc(lm)}</b>${mi.upstream ? `, served by ${esc(mi.upstream)}` : ", provider not pinned"}.` : "";
+  renderErrors();
   renderVerdict(); renderMetrics(); setupSelectors(); renderCharts(); renderTables();
 }
 
@@ -853,7 +929,10 @@ function renderMetrics() {
     if (m.winner === "tie") foot = "Tied";
     else if (m.winner) {
       const better = m.better === "lower" ? (m.unit === "$" ? "cheaper" : m.key.startsWith("overhead") || m.unit === "ms" ? "faster" : "lower") : "higher";
-      const d = m.delta_pct == null ? "" : Math.abs(m.delta_pct).toFixed(Math.abs(m.delta_pct) < 10 ? 1 : 0) + "% ";
+      // % gap measured against the loser's value: "61% cheaper", "33% faster", "4% higher"
+      const loser = m.winner === R ? b : a;
+      const pct = (a == null || b == null || !loser) ? null : Math.abs(a - b) / Math.abs(loser) * 100;
+      const d = pct == null ? "" : pct.toFixed(pct < 10 ? 1 : 0) + "% ";
       foot = `<b>${nice(m.winner)}</b> ${d}${better}`;
       if (m.key === "overhead_p50" || m.key === "accuracy" || m.key === "success_a") {
         const diff = Math.abs(a - b);
@@ -1075,6 +1154,21 @@ function drawLoad() {
   });
 }
 
+function renderErrors() {
+  const errs = (state.summary.errors || []);
+  $("#errorsSec").classList.toggle("hidden", !errs.length);
+  if (!errs.length) return;
+  const T = { A: "Speed & fees", B: "Routing quality", load: "Load" };
+  table($("#tableErr"), [
+    { h: "Test", f: e => esc(T[e.track] || e.track) },
+    { h: "System", f: e => esc(nice(e.system)) },
+    { h: "Failed", r: 1, f: e => `${e.failed} / ${e.n}` },
+    { h: "Status codes", f: e => esc(Object.entries(e.by_status).map(([k, v]) => `${k} ×${v}`).join(", ")) },
+    { h: "Most common error", f: e => `<span class="wrap">${esc((e.top_errors[0] || {}).message || "")}</span>` },
+  ], errs, e => rc(state.summary)(e.system));
+  $$("#tableErr td:last-child").forEach(td => td.classList.add("wrap"));
+}
+
 /* ---------------- tables */
 function table(el, cols, rows, rowClass) {
   el.innerHTML = `<thead><tr>${cols.map(c => `<th class="${c.r ? "r" : ""}">${esc(c.h)}</th>`).join("")}</tr></thead>
@@ -1134,6 +1228,7 @@ function renderTables() {
   catch (e) { $("#formMsg").textContent = "Can't reach the server: " + e.message; return; }
   renderForm();
   loadCatalog();
+  loadRefModels();
   await loadHistory();
   const m = location.hash.match(/run=([\w-]+)/);
   if (m) selectRun(m[1]);
