@@ -52,6 +52,9 @@ systems:
     tracks: [A, B]
     models: {small: openai/gpt-4.1-mini, mid: openai/gpt-4.1, frontier: openai/gpt-5}
     router_model: auto                               # TODO: the model string / flag that enables routing
+    # TODO: how Concentrate pins the upstream provider (e.g. {provider: "{provider}"}). Until this is set,
+    # the UI warns that Concentrate may serve the model from a different provider than OpenRouter.
+    # pin: {provider: "{provider}"}
 
   # ---------- Smart routers ----------
   - name: ramp-router
@@ -71,7 +74,7 @@ systems:
     router_model: openrouter/auto
     extra_body:
       usage: {include: true}                          # returns billed cost in usage.cost
-      provider: {order: [OpenAI], allow_fallbacks: false}   # pin upstream for Track A fairness
+    pin: {provider: {only: ["{provider}"], allow_fallbacks: false}}   # OpenRouter provider routing
 
   - name: martian
     kind: router

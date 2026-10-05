@@ -1,0 +1,43 @@
+# Upstream providers you can pin a Speed & fees / Load run to, and call directly as the
+# no-gateway baseline. Keys are OpenRouter provider slugs (the "tag" its endpoints API returns,
+# before any "/variant"). Order = how they're listed in the UI.
+#
+#   authors:        model-ID prefixes this provider makes (used to group the model picker)
+#   direct_model:   how to turn a catalog id ("author/model") into this provider's own id:
+#                     strip_author  -> "deepseek/deepseek-chat" becomes "deepseek-chat"
+#                     keep          -> sent unchanged (hosts like Novita use "author/model")
+#                   Some providers name models differently; the UI lets you override per run.
+providers:
+  openai:
+    label: OpenAI
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    authors: [openai]
+    direct_model: strip_author
+  anthropic:
+    label: Anthropic
+    base_url: https://api.anthropic.com/v1        # OpenAI-SDK compatibility endpoint
+    api_key_env: ANTHROPIC_API_KEY
+    authors: [anthropic]
+    direct_model: strip_author                    # Anthropic uses dashes (claude-sonnet-4-5); check the override
+  novita:
+    label: Novita
+    base_url: https://api.novita.ai/openai/v1
+    api_key_env: NOVITA_API_KEY
+    authors: []                                   # hosts open models (DeepSeek, GLM, Qwen, ...)
+    direct_model: keep
+  deepseek:
+    label: DeepSeek
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+    authors: [deepseek]
+    direct_model: strip_author                    # DeepSeek's own names can differ; check the override
+  z-ai:
+    label: Z.ai (GLM)
+    base_url: https://api.z.ai/api/paas/v4
+    api_key_env: ZAI_API_KEY
+    authors: [z-ai]
+    direct_model: strip_author
+
+# Model authors shown in the picker (from OpenRouter's live catalog), in this order.
+picker_authors: [openai, anthropic, deepseek, z-ai]

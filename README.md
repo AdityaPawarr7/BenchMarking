@@ -62,6 +62,12 @@ gbench ui                         # open http://127.0.0.1:8765
   calls, then watch live progress. Results show a head-to-head scorecard (each gap marked
   *confirmed* or *not yet conclusive* by its statistical test), latency distributions, an
   accuracy-vs-cost chart with the models each router chose, and load-test tail latency.
+- **Model picker:** choose the model for Speed & fees and Load from OpenRouter's live catalog
+  (OpenAI, Anthropic, DeepSeek, Z.ai GLM), or type any `author/model` ID. **Served by** pins the
+  upstream provider (e.g. Novita, DeepSeek, Z.ai) on both gateways so only the gateway differs,
+  and the direct-call baseline goes to that same provider (`configs/providers.yaml`; add
+  `DEEPSEEK_API_KEY`, `NOVITA_API_KEY`, `ZAI_API_KEY` as needed). Concentrate's pin format is a
+  TODO in `configs/systems.yaml`; until it's set the UI warns that its upstream may differ.
 - Every run is saved under `results/ui/<run-id>/` (raw JSONL + the exact configs used), so
   `gbench report results/ui/<run-id>` produces the same analysis as a Markdown report.
 

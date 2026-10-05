@@ -120,6 +120,10 @@ button, input, select { font: inherit; color: inherit; }
 .btn { width: 100%; margin-top: 12px; border: 0; border-radius: 8px; padding: 10px 14px; font-weight: 650; cursor: pointer; background: var(--text); color: var(--surface); }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 .btn.secondary { background: transparent; color: var(--text); border: 1px solid var(--border-strong); width: auto; margin: 0; padding: 6px 12px; font-weight: 600; }
+select.full, input.full { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 13px; }
+input.full { margin-top: 6px; }
+.modelchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); background: var(--surface-2); border-radius: 999px; padding: 2px 10px; }
+.modelchip b { color: var(--text); font-weight: 600; font-family: var(--mono); font-size: 12px; }
 .formmsg { margin-top: 10px; font-size: 12.5px; color: var(--bad); }
 .formmsg:empty { display: none; }
 .note { font-size: 12.5px; color: var(--text-2); background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
@@ -247,6 +251,21 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
           <div id="sysNote"></div>
         </div>
 
+        <div class="field" id="modelField">
+          <label for="modelSel">Model</label>
+          <select id="modelSel" class="full"><option value="">Loading models…</option></select>
+          <input type="text" id="modelCustom" class="full hidden" placeholder="author/model, e.g. deepseek/deepseek-chat" spellcheck="false">
+          <label for="upSel" style="margin-top:10px">Served by</label>
+          <select id="upSel" class="full"><option value="">Any provider (each gateway decides)</option></select>
+          <div class="hidden" id="directRow" style="margin-top:10px">
+            <label for="directId" class="lbl">Model ID for the direct call (no gateway)</label>
+            <input type="text" id="directId" class="full" style="margin-top:0" spellcheck="false">
+            <div style="margin-top:6px"><span class="badge" id="directKey"></span></div>
+          </div>
+          <div class="small muted" id="modelHelp" style="margin-top:6px">Used for Speed &amp; fees and Load. In Routing quality each router picks its own model.</div>
+          <div id="modelNote"></div>
+        </div>
+
         <div class="field">
           <label for="runLabel">Label (optional)</label>
           <div class="inline"><input type="text" id="runLabel" class="wide" style="width:100%" placeholder="e.g. pilot, us-east-1, morning"></div>
@@ -312,6 +331,7 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
         <h2 id="runTitle">Run</h2>
         <span class="pill" id="runStatus"></span>
         <span class="small muted num" id="runMeta"></span>
+        <span class="modelchip hidden" id="runModel"></span>
         <span class="spacer"></span>
         <button class="btn secondary hidden" id="cancelBtn" type="button">Cancel</button>
       </div>
@@ -340,7 +360,7 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
             <select id="cdfShape" aria-label="Prompt size"></select>
             <select id="cdfStream" aria-label="Response mode"></select>
           </div>
-          <div class="desc">Share of requests that got their first token within a given time. Further left is faster; the gap at the top is the slow tail.</div>
+          <div class="desc">Share of requests that got their first token within a given time. Further left is faster; the gap at the top is the slow tail.<span id="latModel"></span></div>
         </div>
         <div class="legend" id="cdfLegend"></div>
         <div class="chart" id="cdfChart"></div>
@@ -480,7 +500,7 @@ function renderForm() {
     sl.appendChild(row);
     if (state.mode === "live") {
       if (!s.configured) notes.push(`${esc(s.name)} isn't in configs/systems.yaml.`);
-      else if (!s.available) notes.push(`Add <code>${esc(s.key_env)}</code> to .env and restart <code>gbench ui</code>${i === 2 ? " (optional: only needed for the added-delay number)" : ""}.`);
+      else if (!s.available && i < 2) notes.push(`Add <code>${esc(s.key_env)}</code> to .env and restart <code>gbench ui</code>.`);
       if (s.todo) notes.push(`${esc(nice(s.name))}'s URL or routing flag is still marked TODO in configs/systems.yaml.`);
     }
   });
@@ -519,6 +539,9 @@ function readForm() {
     include_model_baselines: $("#incModels").checked,
     rates: $("#rates").value.split(/[,\s]+/).map(Number).filter(x => x > 0),
     step_duration_s: +$("#stepDur").value || 1,
+    model: currentModel(),
+    upstream: currentModel() ? $("#upSel").value : "",
+    direct_model: currentModel() && !$("#directRow").classList.contains("hidden") ? $("#directId").value.trim() : "",
   };
 }
 
@@ -529,6 +552,7 @@ function problems(o) {
   if (o.track_a && (!o.shapes.length || !o.stream_modes.length)) out.push("Speed & fees needs a prompt size and a response mode.");
   if (o.track_b && !o.workloads.length) out.push("Routing quality needs a question set (prepare more with gbench prepare-data).");
   if (o.load && !o.rates.length) out.push("Load test needs at least one step.");
+  if ($("#modelSel").value === "__custom__" && !o.model) out.push("Type a model ID, or pick one from the list.");
   if (state.mode === "live") {
     m.systems.slice(0, 2).forEach(s => { if (!s.available) out.push(`${nice(s.name)} has no API key.`); });
   }
@@ -556,7 +580,7 @@ function updateEstimate() {
   $("#formMsg").textContent = isActive() ? "A run is in progress." : p[0] || "";
 }
 
-$$(".seg button").forEach(b => b.addEventListener("click", () => { state.mode = b.dataset.mode; renderForm(); }));
+$$(".seg button").forEach(b => b.addEventListener("click", () => { state.mode = b.dataset.mode; renderForm(); loadCatalog(); }));
 [["#cA", "#tA"], ["#cB", "#tB"], ["#cL", "#tL"]].forEach(([c, t]) =>
   $(c).addEventListener("change", () => { $(t).dataset.off = String(!$(c).checked); updateEstimate(); }));
 $$("#reqs, #warm, #maxItems, #rates, #stepDur, #incBase, #incModels").forEach(el => el.addEventListener("input", updateEstimate));
@@ -575,6 +599,129 @@ $("#runBtn").addEventListener("click", async () => {
   }
 });
 
+
+/* ---------------- model picker */
+const AUTHOR_LABEL = { openai: "OpenAI", anthropic: "Anthropic", deepseek: "DeepSeek", "z-ai": "Z.ai (GLM)" };
+const per1m = (a, b) => (a == null || b == null) ? "" : ` · $${(+a).toFixed(a < 1 ? 2 : 1)} / $${(+b).toFixed(b < 1 ? 2 : 1)} per 1M`;
+const mstate = { catalog: [], providers: [], providersFor: null, reqId: 0 };
+
+async function loadCatalog(refresh = false) {
+  const sel = $("#modelSel");
+  let res = { models: [], error: null };
+  try { res = await api("/api/models" + (refresh ? "?refresh=1" : "")); } catch (e) { res.error = e.message; }
+  mstate.catalog = res.models || [];
+  const keep = sel.value;
+  const def = state.config.modes[state.mode].systems[0].model;
+  let html = `<option value="">Config default${def ? ` (${esc(def)})` : ""}</option>`;
+  const groups = {};
+  mstate.catalog.forEach(m => (groups[m.author] = groups[m.author] || []).push(m));
+  (state.config.picker_authors || Object.keys(groups)).forEach(a => {
+    if (!groups[a]) return;
+    html += `<optgroup label="${esc(AUTHOR_LABEL[a] || a)}">` +
+      groups[a].map(m => `<option value="${esc(m.id)}">${esc(m.name)}${per1m(m.prompt_per_m, m.completion_per_m)}</option>`).join("") + `</optgroup>`;
+  });
+  html += `<option value="__custom__">Other: type a model ID…</option>`;
+  sel.innerHTML = html;
+  if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  $("#modelNote").innerHTML = res.error
+    ? `<div class="note err">${esc(res.error)}. Pick "Other" and type the model ID (author/model).</div>` : "";
+  onModelChange();
+}
+
+function currentModel() {
+  const v = $("#modelSel").value;
+  return v === "__custom__" ? $("#modelCustom").value.trim() : v;
+}
+const providerInfo = slug => (state.config.providers || []).find(p => p.slug === slug);
+const deriveDirect = (model, rule) => rule === "strip_author" && model.includes("/") ? model.split("/").slice(1).join("/") : model;
+
+async function onModelChange() {
+  const v = $("#modelSel").value;
+  $("#modelCustom").classList.toggle("hidden", v !== "__custom__");
+  const model = currentModel();
+  const up = $("#upSel");
+  const id = ++mstate.reqId;
+  if (!model) {
+    up.innerHTML = `<option value="">Any provider (each gateway decides)</option>`; up.disabled = true;
+    onUpstreamChange(); return;
+  }
+  up.disabled = false;
+  let provs = null;
+  if (model.includes("/")) {
+    up.innerHTML = `<option value="">Loading providers…</option>`;
+    try {
+      const [a, ...rest] = model.split("/");
+      const r = await api(`/api/models/${encodeURIComponent(a)}/${rest.map(encodeURIComponent).join("/")}/providers`);
+      if (id !== mstate.reqId) return;
+      if (r.providers && r.providers.length) provs = r.providers;
+    } catch (e) {}
+  }
+  if (!provs) {   // catalog unreachable or unknown model: offer the configured providers
+    provs = (state.config.providers || []).map(p => ({ slug: p.slug, name: p.label, direct: true, key_set: p.key_set, direct_model: p.direct_model }));
+  }
+  mstate.providers = provs;
+  const author = model.split("/")[0];
+  const preferred = (state.config.providers || []).find(p => (p.authors || []).includes(author) && provs.some(x => x.slug === p.slug));
+  up.innerHTML = `<option value="">Any provider (each gateway decides)</option>` + provs.map(p =>
+    `<option value="${esc(p.slug)}">${esc(p.name)}${per1m(p.prompt_per_m, p.completion_per_m)}${p.direct ? (p.key_set ? " · direct key set" : "") : ""}</option>`).join("");
+  up.value = preferred ? preferred.slug : "";
+  onUpstreamChange();
+}
+
+function onUpstreamChange() {
+  const model = currentModel(), slug = $("#upSel").value;
+  const author = model.split("/")[0];
+  const pv = providerInfo(slug) || (!slug && (state.config.providers || []).find(p => (p.authors || []).includes(author)));
+  const row = $("#directRow");
+  if (model && pv && state.mode === "live") {
+    row.classList.remove("hidden");
+    if (!$("#directId").dataset.touched) $("#directId").value = deriveDirect(model, pv.direct_model);
+    const b = $("#directKey");
+    b.className = "badge " + (pv.key_set ? "ok" : "warn");
+    b.textContent = pv.key_set ? `${pv.label} key set` : `no ${pv.key_env}`;
+    b.title = pv.key_set ? "" : `Add ${pv.key_env} to .env to include the direct-call baseline`;
+  } else row.classList.add("hidden");
+  const notes = [];
+  if (model && slug) {
+    const ps = state.config.modes[state.mode].pin_support || {};
+    ["concentrate", "openrouter"].forEach(n => { if (ps[n] === false) notes.push(`${nice(n)} has no provider pin set in configs/systems.yaml yet, so it may serve this model from a different provider.`); });
+  }
+  if (model && !slug) notes.push("No provider pinned: each gateway may pick a different upstream, so speed differences can come from the provider, not the gateway.");
+  const errNote = $("#modelNote").querySelector(".note.err");
+  $("#modelNote").innerHTML = (errNote ? errNote.outerHTML : "") + (notes.length ? `<div class="note">${notes.map(esc).join("<br>")}</div>` : "");
+  updateSysModels();
+  updateEstimate();
+}
+
+function updateSysModels() {
+  const model = currentModel(), live = state.mode === "live";
+  const directVisible = !$("#directRow").classList.contains("hidden");
+  const slug = $("#upSel").value, author = model.split("/")[0];
+  const pv = providerInfo(slug) || (state.config.providers || []).find(p => (p.authors || []).includes(author));
+  $$("#sysList .sysrow").forEach((row, i) => {
+    const meta = row.querySelector(".meta"), name = row.querySelector(".name"), badge = row.querySelector(".badge");
+    if (!meta) return;
+    for (const el of [meta, name, badge]) if (el.dataset.orig == null) { el.dataset.orig = el.textContent; el.dataset.cls = el.className; }
+    if (!model) { meta.textContent = meta.dataset.orig; name.textContent = name.dataset.orig; badge.textContent = badge.dataset.orig; badge.className = badge.dataset.cls; return; }
+    if (i < 2) { meta.textContent = model; return; }
+    // baseline row follows the provider the model is pinned to (or the model's maker)
+    if (!live) { name.textContent = "direct (baseline)"; meta.textContent = model; return; }
+    if (pv) {
+      name.textContent = `Direct ${pv.label} (baseline)`;
+      meta.textContent = directVisible ? $("#directId").value : deriveDirect(model, pv.direct_model);
+      badge.className = "badge " + (pv.key_set ? "ok" : "warn"); badge.textContent = pv.key_set ? "key set" : "no key";
+    } else {
+      name.textContent = "Direct baseline"; meta.textContent = "not available for this provider";
+      badge.className = "badge neutral"; badge.textContent = "skipped";
+    }
+  });
+}
+
+$("#modelSel").addEventListener("change", () => { delete $("#directId").dataset.touched; onModelChange(); });
+let customT; $("#modelCustom").addEventListener("input", () => { clearTimeout(customT); customT = setTimeout(() => { delete $("#directId").dataset.touched; onModelChange(); }, 500); });
+$("#upSel").addEventListener("change", () => { delete $("#directId").dataset.touched; onUpstreamChange(); });
+$("#directId").addEventListener("input", () => { $("#directId").dataset.touched = "1"; updateSysModels(); });
+
 /* ---------------- history */
 const isActive = () => state.run && ["queued", "running"].includes(state.run.status);
 function runTitle(r) {
@@ -592,7 +739,7 @@ async function loadHistory() {
     const o = r.options || {};
     li.innerHTML = `<button type="button" aria-current="${r.id === state.runId}">
       <span class="h-title">${esc(runTitle(r))}</span><span class="pill ${esc(r.status)}">${esc(r.status)}</span>
-      <span class="h-sub">${o.mode === "demo" ? "Demo · " : "Live · "}${esc(ago(r.created))} · ${esc(r.id)}</span></button>`;
+      <span class="h-sub">${o.mode === "demo" ? "Demo · " : "Live · "}${o.model ? esc(o.model) + (o.upstream ? " via " + esc(o.upstream) : "") + " · " : ""}${esc(ago(r.created))} · ${esc(r.id)}</span></button>`;
     li.firstChild.addEventListener("click", () => selectRun(r.id));
     ul.appendChild(li);
   });
@@ -635,6 +782,10 @@ function renderRun() {
   const st = $("#runStatus"); st.className = "pill " + r.status; st.textContent = r.status;
   $("#runMeta").textContent = `${r.id} · ${o.mode === "demo" ? "demo" : "live"}${r.started ? " · " + dur(r.started, r.finished) : ""}`;
   $("#demoBanner").classList.toggle("hidden", o.mode !== "demo");
+  const rm = $("#runModel"), mi = r.models || {};
+  const shownModel = mi.model || Object.values(mi.ids || {})[0];
+  rm.classList.toggle("hidden", !shownModel);
+  rm.innerHTML = shownModel ? `Model <b>${esc(shownModel)}</b>${mi.upstream ? ` via ${esc(mi.upstream)}` : ""}` : "";
   $("#cancelBtn").classList.toggle("hidden", !["queued", "running"].includes(r.status));
   $("#errBox").classList.toggle("hidden", !r.error);
   $("#errBox").textContent = r.error ? "Run failed: " + r.error : "";
@@ -661,6 +812,9 @@ async function loadResults() {
   state.summary = s;
   if (s.empty) { $("#results").classList.add("hidden"); return; }
   $("#results").classList.remove("hidden");
+  const mi = s.models || {}, ids = mi.ids || {};
+  const lm = mi.model || ids[s.ref];
+  $("#latModel").innerHTML = lm ? ` Model: <b>${esc(lm)}</b>${mi.upstream ? `, served by ${esc(mi.upstream)}` : ", provider not pinned"}.` : "";
   renderVerdict(); renderMetrics(); setupSelectors(); renderCharts(); renderTables();
 }
 
@@ -677,6 +831,7 @@ function renderVerdict() {
   const ties = sc.total - decided;
   $("#verdictText").innerHTML = `${lead} ${ties ? `${ties} tied or not measured. ` : ""}
     Gaps confirmed by a statistical test: ${nice(R)} ${sigR}, ${nice(V)} ${sigV}. Costs are counted directly, so they need no test.
+    ${(s.models && (s.models.model || (s.models.ids || {})[R])) ? `<br>Speed &amp; fees measured on <b>${esc(s.models.model || s.models.ids[R])}</b>${s.models.upstream ? ` via ${esc(s.models.upstream)}` : ""}.` : ""}
     ${s.mode === "demo" ? "<br><span class='muted'>Demo data, not real results.</span>" : ""}`;
 }
 
@@ -978,6 +1133,7 @@ function renderTables() {
   try { state.config = await api("/api/config"); }
   catch (e) { $("#formMsg").textContent = "Can't reach the server: " + e.message; return; }
   renderForm();
+  loadCatalog();
   await loadHistory();
   const m = location.hash.match(/run=([\w-]+)/);
   if (m) selectRun(m[1]);

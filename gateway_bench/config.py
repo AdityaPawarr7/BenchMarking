@@ -40,6 +40,8 @@ class System:
     headers: dict[str, str] = field(default_factory=dict)
     extra_body: dict[str, Any] = field(default_factory=dict)
     timeout_s: float = 180.0
+    # Body fragment that pins the upstream provider; "{provider}" is replaced with its slug.
+    pin: dict[str, Any] | None = None
 
     @property
     def api_key(self) -> str:
@@ -71,11 +73,23 @@ def load_systems(path: str | Path = "configs/systems.yaml") -> dict[str, System]
             headers=s.get("headers", {}) or {},
             extra_body=s.get("extra_body", {}) or {},
             timeout_s=float(s.get("timeout_s", defaults.get("timeout_s", 180))),
+            pin=s.get("pin"),
         )
         if sys_.name in systems:
             raise ValueError(f"duplicate system name: {sys_.name}")
         systems[sys_.name] = sys_
     return systems
+
+
+def fill_pin(pin: Any, provider: str) -> Any:
+    """Substitute {provider} into a pin template (recursively)."""
+    if isinstance(pin, str):
+        return pin.replace("{provider}", provider)
+    if isinstance(pin, dict):
+        return {k: fill_pin(v, provider) for k, v in pin.items()}
+    if isinstance(pin, list):
+        return [fill_pin(v, provider) for v in pin]
+    return pin
 
 
 def select_systems(
