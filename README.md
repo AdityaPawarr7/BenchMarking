@@ -22,6 +22,7 @@ Needs Python 3.9+ (the macOS built-in `python3` works). Keep the virtualenv outs
 
 ```bash
 python3 -m venv ~/.venvs/gbench && source ~/.venvs/gbench/bin/activate
+pip install --upgrade pip          # macOS ships pip 21, too old for editable installs
 pip install -e '.[dev,ui]'
 
 # 1. Prove the pipeline works with local mock gateways (no keys, no cost, ~1 min)
