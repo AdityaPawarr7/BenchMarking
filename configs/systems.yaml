@@ -47,12 +47,12 @@ systems:
   # ---------- System of interest ----------
   - name: concentrate
     kind: router
-    base_url: https://api.concentrate.ai/v1          # TODO: confirm with the Concentrate API team
+    base_url: https://api.concentrate.ai/v1          # confirmed working (Oct 2026)
     api_key_env: CONCENTRATE_API_KEY
     tracks: [A, B]
     models: {small: openai/gpt-4.1-mini, mid: openai/gpt-4.1, frontier: openai/gpt-5}
-    router_model: auto                               # TODO: the model string / flag that enables routing
-    # TODO: how Concentrate pins the upstream provider (e.g. {provider: "{provider}"}). Until this is set,
+    router_model: auto                               # confirmed: routes per request
+    # OPEN QUESTION: how Concentrate pins the upstream provider (e.g. {provider: "{provider}"}). Until this is set,
     # the UI warns that Concentrate may serve the model from a different provider than OpenRouter.
     # pin: {provider: "{provider}"}
 

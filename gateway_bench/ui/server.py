@@ -15,7 +15,7 @@ import time
 import traceback
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import yaml
 from fastapi import FastAPI, HTTPException
@@ -670,6 +670,23 @@ def cancel_run(run_id: str):
     return {"ok": True}
 
 
+class BillingIn(BaseModel):
+    concentrate: Optional[float] = Field(None, ge=0)
+    openrouter: Optional[float] = Field(None, ge=0)
+    note: str = ""
+
+
+@app.post("/api/runs/{run_id}/billing")
+def set_billing(run_id: str, b: BillingIn):
+    """What each dashboard actually charged for this run (USD). Stored with the run."""
+    run_dir = RUNS_DIR / run_id
+    if not (run_dir / "state.json").exists():
+        raise HTTPException(404, "run not found")
+    (run_dir / "billing.json").write_text(json.dumps({REF: b.concentrate, RIVAL: b.openrouter, "note": b.note,
+                                                      "saved": time.time()}, indent=2))
+    return {"ok": True}
+
+
 @app.get("/api/runs/{run_id}/results")
 def get_results(run_id: str):
     st = _get_state(run_id)
@@ -692,7 +709,8 @@ def get_results(run_id: str):
             if m.get("price"):
                 for key in (m["id"], *m["aliases"]):
                     catalog.setdefault(key, m["price"])
-    summary = build_summary(run_dir, prices, REF, RIVAL, load_cfg, catalog=catalog)
+    billing = json.loads((run_dir / "billing.json").read_text()) if (run_dir / "billing.json").exists() else {}
+    summary = build_summary(run_dir, prices, REF, RIVAL, load_cfg, catalog=catalog, billing=billing)
     summary["mode"] = mode
     summary["models"] = st.get("models") or {}
     return JSONResponse(summary)

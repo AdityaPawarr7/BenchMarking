@@ -40,6 +40,7 @@
     --shadow: none;
   }
 }
+#tablePaired td, #tablePaired th { padding-left: 6px; padding-right: 6px; }
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #2e2e2b; --border-strong: #3d3d39;
@@ -141,6 +142,18 @@ input.full { margin-top: 6px; }
 .pill.running, .pill.queued { color: var(--accent-ink); background: var(--ref-soft); }
 .pill.done { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
 .pill.failed, .pill.interrupted { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.fair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; padding: 12px 16px 16px; }
+@media (max-width: 1100px) { .fair { grid-template-columns: 1fr; } }
+.fair h4 { margin: 0 0 4px; font-size: 13.5px; }
+.fair p { margin: 0 0 8px; }
+.fair .tablewrap { padding-left: 0; padding-right: 0; }
+.billform { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-items: end; }
+.billform label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--text-2); }
+.billform label .dot { display: inline-block; margin-right: 4px; }
+.billform label.wide { grid-column: 1 / -1; }
+.billform input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 13px; }
+.cheap { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.cheap .chip { font-size: 12px; }
 .pill.done_with_errors { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .checks { display: grid; gap: 6px; margin-bottom: 14px; }
 .checkrow { display: grid; grid-template-columns: 20px 150px 1fr; gap: 8px; font-size: 12.5px; align-items: start; }
@@ -261,6 +274,7 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
         <div class="field" id="modelField">
           <label for="modelSel">Model</label>
           <select id="modelSel" class="full"><option value="">Loading models…</option></select>
+          <div class="hidden" id="cheapRow"><div class="small muted" style="margin-top:6px">Cheapest on both gateways (blended $/1M, 4:1 in:out):</div><div class="cheap" id="cheapChips"></div></div>
           <input type="text" id="modelCustom" class="full hidden" placeholder="author/model, e.g. deepseek/deepseek-chat" spellcheck="false">
           <div class="hidden" id="refRow" style="margin-top:10px">
             <label for="refModel" class="lbl">Concentrate's name for this model</label>
@@ -377,6 +391,30 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
 
       <div class="metrics" id="metrics"></div>
 
+      <section class="card hidden" id="fairSec">
+        <div class="section-h"><h3>Fairness checks</h3>
+          <div class="desc">Two corrections for things that can make a raw comparison unfair: different amounts of work billed, and requests one side failed.</div></div>
+        <div class="fair">
+          <div class="fair-col">
+            <h4>What each gateway actually charged</h4>
+            <p class="small muted">Enter the amount each dashboard charged <b>for this run</b>. Easiest: note your balance before and after, or use keys only for benchmarking. Concentrate doesn't return billed cost per request, so this is the only way to see its real price.</p>
+            <div class="billform">
+              <label><span><span class="dot ref"></span> Concentrate charged ($)</span><input type="number" step="0.01" min="0" id="billRef" placeholder="from its dashboard"></label>
+              <label><span><span class="dot rival"></span> OpenRouter charged ($)</span><input type="number" step="0.01" min="0" id="billRival" placeholder=""></label>
+              <label class="wide">Note (optional)<input type="text" id="billNote" placeholder="e.g. balance 100.00 → 40.00, 14:41–15:07"></label>
+              <span><button class="btn secondary" id="billSave" type="button">Save and recalculate</button> <span class="small muted" id="billMsg"></span></span>
+            </div>
+            <div class="tablewrap" style="padding:8px 0 0"><table id="tableBill"></table></div>
+            <div class="verdict-text small" id="billVerdict" style="margin-top:8px"></div>
+          </div>
+          <div class="fair-col">
+            <h4>Speed on the same requests</h4>
+            <p class="small muted" id="pairedDesc"></p>
+            <div class="tablewrap" style="padding:8px 0 0"><table id="tablePaired"></table></div>
+          </div>
+        </div>
+      </section>
+
       <section class="card hidden" id="latencySec">
         <div class="section-h">
           <h3>Time to first token</h3>
@@ -448,6 +486,8 @@ function fmt(v, unit) {
   if (unit === "$") return usd(v);
   if (unit === "tok/s") return Math.round(v) + " tok/s";
   if (unit === "req/s") return (Math.round(v * 10) / 10) + " req/s";
+  if (unit === "×") return v.toFixed(2) + "×";
+  if (unit === "tok") return Math.round(v).toLocaleString() + " tok";
   return String(v);
 }
 function usd(v) {
@@ -658,6 +698,7 @@ async function loadCatalog(refresh = false) {
       `<optgroup label="${esc(AUTHOR_LABEL[a] || a)}">` + groups[a].map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join("") + `</optgroup>`).join("");
   if ([...js.options].some(o => o.value === keepJ)) js.value = keepJ;
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  renderCheapest();
   $("#modelNote").innerHTML = res.error
     ? `<div class="note err">${esc(res.error)}. Pick "Other" and type the model ID (author/model).</div>` : "";
   onModelChange();
@@ -776,6 +817,33 @@ function guessRefName(model) {
   const i = model.indexOf("/");
   return i < 0 ? model.replace(/\./g, "-") : model.slice(0, i + 1) + model.slice(i + 1).replace(/\./g, "-");
 }
+function findRef(model) {
+  const refs = mstate.refModels || [], tail = model.split("/").pop();
+  const keys = m => [m.id, ...(m.aliases || [])];
+  return refs.find(m => keys(m).includes(model) || keys(m).includes(tail))
+    || refs.find(m => keys(m).some(k => normId(k) === normId(model) || normId(k) === normId(tail))) || null;
+}
+function renderCheapest() {
+  const row = $("#cheapRow");
+  if (!(mstate.catalog || []).length || !(mstate.refModels || []).length) { row.classList.add("hidden"); return; }
+  const blend = (pi, po) => (4 * pi + po) / 5;
+  const both = [];
+  for (const m of mstate.catalog) {
+    const r = findRef(m.id);
+    if (!r || !r.price || m.prompt_per_m == null || m.completion_per_m == null) continue;
+    both.push({ id: m.id, name: m.name, or: blend(m.prompt_per_m, m.completion_per_m), cc: blend(r.price.input, r.price.output) });
+  }
+  both.sort((a, b) => Math.max(a.or, a.cc) - Math.max(b.or, b.cc));
+  const top = both.slice(0, 6);
+  row.classList.toggle("hidden", !top.length);
+  $("#cheapChips").innerHTML = top.map(x => `<span class="chip" role="button" tabindex="0" data-model="${esc(x.id)}" title="OpenRouter $${x.or.toFixed(3)} · Concentrate $${x.cc.toFixed(3)} per 1M (blended)">${esc(x.name.replace(/^[^:]+:\s*/, ""))} · $${Math.max(x.or, x.cc).toFixed(2)}</span>`).join("");
+}
+$("#cheapChips").addEventListener("click", e => {
+  const c = e.target.closest(".chip"); if (!c) return;
+  $("#modelSel").value = c.dataset.model;
+  delete $("#refModel").dataset.touched; delete $("#directId").dataset.touched;
+  onModelChange();
+});
 function refMatchNote(model) {
   const refs = mstate.refModels || [], help = $("#refHelp");
   if (!model || !refs.length) return;
@@ -798,8 +866,9 @@ async function loadRefModels() {
     mstate.refModels = r.models || (r.ids || []).map(id => ({ id, aliases: [] }));
     $("#refModelList").innerHTML = (r.ids || []).map(id => `<option value="${esc(id)}">`).join("");
     if (currentModel() && !$("#refModel").dataset.touched) { $("#refModel").value = guessRefName(currentModel()); updateSysModels(); }
-    refMatchNote(currentModel());
     if (r.ids && r.ids.length) $("#refHelp").textContent = `Concentrate lists ${r.ids.length} models; start typing to pick one. The pre-run check confirms it works.`;
+    refMatchNote(currentModel());
+    renderCheapest();
   } catch (e) {}
 }
 
@@ -925,6 +994,7 @@ async function loadResults() {
   const lm = mi.model || ids[s.ref];
   $("#latModel").innerHTML = lm ? ` Model: <b>${esc(lm)}</b>${mi.upstream ? `, served by ${esc(mi.upstream)}` : ", provider not pinned"}.` : "";
   renderErrors();
+  renderFairness();
   renderVerdict(); renderMetrics(); setupSelectors(); renderCharts(); renderTables();
 }
 
@@ -945,7 +1015,7 @@ function renderVerdict() {
     ${s.mode === "demo" ? "<br><span class='muted'>Demo data, not real results.</span>" : ""}`;
 }
 
-const TRACK = { A: "Speed & fees", B: "Routing quality", load: "Load" };
+const TRACK = { A: "Speed & fees", B: "Routing quality", load: "Load", billing: "Actual billing" };
 function renderMetrics() {
   const s = state.summary, R = s.ref, V = s.rival, wrap = $("#metrics");
   wrap.innerHTML = "";
@@ -1187,6 +1257,64 @@ function drawLoad() {
     h.addEventListener("mouseleave", () => tipAt(el, null));
   });
 }
+
+function renderFairness() {
+  const s = state.summary, b = s.billing, R = s.ref, V = s.rival;
+  const show = !!(b || (s.paired && s.paired.length));
+  $("#fairSec").classList.toggle("hidden", !show);
+  if (!show) return;
+  if (b) {
+    const sd = b.sides;
+    if (document.activeElement !== $("#billRef")) $("#billRef").value = sd[R].billed_source === "entered" ? sd[R].billed : "";
+    if (document.activeElement !== $("#billRival")) $("#billRival").value = sd[V].billed_source === "entered" ? sd[V].billed : "";
+    $("#billRival").placeholder = sd[V].reported_total != null ? `API reported ${usd(sd[V].reported_total)}` : "from its dashboard";
+    if (document.activeElement !== $("#billNote")) $("#billNote").value = b.note || "";
+    const sw = b.same_work || {}, cost = sw.cost || {};
+    const rows = [
+      ["Successful requests", k => `${sd[k].requests.toLocaleString()}${sd[k].requests_failed ? ` <span class="muted">(+${sd[k].requests_failed} failed)</span>` : ""}`],
+      ["Tokens in / out", k => `${(sd[k].tokens_in / 1e6).toFixed(2)}M / ${(sd[k].tokens_out / 1e6).toFixed(2)}M`],
+      ["List price for those tokens", k => usd(sd[k].list_cost) + (sd[k].unpriced ? ` <span class="muted">(${sd[k].unpriced} unpriced)</span>` : "")],
+      ["Charged", k => sd[k].billed == null ? `<span class="muted">not entered</span>` : `${usd(sd[k].billed)} <span class="muted">(${esc(sd[k].billed_source)})</span>`],
+      ["Charged ÷ list price", k => sd[k].ratio == null ? "–" : sd[k].ratio.toFixed(2) + "×"],
+      [`Cost for the same ${sw.requests || ""} requests`, k => cost[k] == null ? "–" : `<b>${usd(cost[k])}</b>`],
+    ];
+    $("#tableBill").innerHTML = `<thead><tr><th></th><th class="r"><span class="dot ref"></span> ${nice(R)}</th><th class="r"><span class="dot rival"></span> ${nice(V)}</th></tr></thead><tbody>` +
+      rows.map(([h, f]) => `<tr><td>${h}</td><td class="r num">${f(R)}</td><td class="r num">${f(V)}</td></tr>`).join("") + `</tbody>`;
+    let verdict = "";
+    if (cost[R] != null && cost[V] != null) {
+      const lo = cost[R] <= cost[V] ? R : V, hi = lo === R ? V : R;
+      const pct = Math.abs(cost[R] - cost[V]) / Math.max(cost[R], cost[V]) * 100;
+      verdict = pct < 0.5 ? `<strong>Same price for the same work</strong> (${usd(cost[R])} vs ${usd(cost[V])}).`
+        : `<strong>${nice(lo)} is ${pct.toFixed(pct < 10 ? 1 : 0)}% cheaper for the same work</strong>: ${usd(cost[lo])} vs ${usd(cost[hi])} for the ${sw.requests} requests both completed, each at its own actual charge rate.`;
+      verdict += ` Raw totals differ because ${nice(R)} processed ${sd[R].requests.toLocaleString()} requests and ${nice(V)} ${sd[V].requests.toLocaleString()}.`;
+    } else if (sd[R].billed == null) {
+      verdict = `Enter what ${nice(R)}'s dashboard charged for this run to compare real prices. Until then its cost is only an estimate from list price.`;
+    }
+    $("#billVerdict").innerHTML = verdict;
+  }
+  const P = s.paired || [];
+  $("#pairedDesc").innerHTML = s.latency_basis === "matched"
+    ? `Failure rates differed, so <b>all speed metrics above use only these matched requests</b> (${s.pairs_n} pairs), matched by size, mode and round.`
+    : `Only requests both gateways completed, matched by size, mode and round (${s.pairs_n || 0} pairs).`;
+  const order = ["tiny", "short", "medium", "long"];
+  const rowsP = [...P].sort((a, b) => (order.indexOf(a.shape) - order.indexOf(b.shape)) || (b.stream - a.stream));
+  $("#tablePaired").innerHTML = rowsP.length ? `<thead><tr><th>Size</th><th>Mode</th><th class="r">Pairs</th><th class="r" title="time to first token">1st token <span class="dot ref"></span></th><th class="r"><span class="dot rival"></span></th><th class="r" title="share of pairs where ${nice(R)} got the first token sooner"><span class="dot ref"></span> ahead</th><th class="r" title="total response time">Total <span class="dot ref"></span></th><th class="r"><span class="dot rival"></span></th></tr></thead><tbody>` +
+    rowsP.map(r => `<tr><td>${esc(r.shape)}</td><td>${r.stream ? "stream" : "plain"}</td><td class="r num">${r.pairs}</td>
+      <td class="r num">${r.stream ? fmt(r.ttft_r, "ms") : "–"}</td><td class="r num">${r.stream ? fmt(r.ttft_v, "ms") : "–"}</td>
+      <td class="r num">${r.stream && r.faster_share != null ? r.faster_share.toFixed(0) + "%" : "–"}</td>
+      <td class="r num">${fmt(r.e2e_r, "ms")}</td><td class="r num">${fmt(r.e2e_v, "ms")}</td></tr>`).join("") + `</tbody>`
+    : `<tbody><tr><td class="muted">No matched requests (needs the Speed &amp; fees test).</td></tr></tbody>`;
+}
+$("#billSave").addEventListener("click", async () => {
+  const num = id => { const v = $(id).value.trim(); return v === "" ? null : Number(v); };
+  $("#billMsg").textContent = "Saving…";
+  try {
+    await api(`/api/runs/${state.runId}/billing`, { method: "POST",
+      body: JSON.stringify({ concentrate: num("#billRef"), openrouter: num("#billRival"), note: $("#billNote").value.trim() }) });
+    $("#billMsg").textContent = "Saved.";
+    loadResults();
+  } catch (e) { $("#billMsg").textContent = e.message; }
+});
 
 function renderErrors() {
   const errs = (state.summary.errors || []);

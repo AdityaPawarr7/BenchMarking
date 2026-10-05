@@ -14,7 +14,7 @@ from .. import analysis as A
 from ..pricing import PriceBook
 from ..results import read_results
 
-_META_COLS = ("meta.warmup", "meta.shape", "meta.workload", "meta.label", "meta.role", "meta.item_id",
+_META_COLS = ("meta.rep", "meta.warmup", "meta.shape", "meta.workload", "meta.label", "meta.role", "meta.item_id",
               "meta.target_rps", "baseline", "correct", "cost_usd", "model_served", "output_tps")
 
 
@@ -47,8 +47,8 @@ def _metric(key, label, unit, better, track, ref, rival, a_val, b_val, ci=None, 
     if a_val is None or b_val is None or (isinstance(a_val, float) and math.isnan(a_val)) \
             or (isinstance(b_val, float) and math.isnan(b_val)):
         return clean(m)
-    if a_val == b_val:
-        m["winner"] = "tie"
+    if a_val == b_val or (max(abs(a_val), abs(b_val)) and abs(a_val - b_val) / max(abs(a_val), abs(b_val)) < 0.005):
+        m["winner"] = "tie"            # gaps under 0.5% are noise, not a win
     else:
         ref_better = (a_val < b_val) if better == "lower" else (a_val > b_val)
         m["winner"] = ref if ref_better else rival
@@ -146,8 +146,80 @@ def _health(df: pd.DataFrame) -> list[dict]:
     return rows
 
 
+def nice_pct(x) -> str:
+    return f"{x * 100:.0f}%"
+
+
+def _boot_median_ci(x, n: int = 2000, seed: int = 0):
+    x = np.asarray(pd.Series(x).dropna(), dtype=float)
+    if len(x) < 2:
+        return [None, None]
+    rng = np.random.default_rng(seed)
+    b = np.median(x[rng.integers(0, len(x), (n, len(x)))], axis=1)
+    return [float(np.quantile(b, .025)), float(np.quantile(b, .975))]
+
+
+def paired_requests(ta: pd.DataFrame, ref: str, rival: str) -> pd.DataFrame:
+    """Track A requests both gateways completed in the same cell and round (shape, stream, rep).
+    Comparing only these removes bias when one side failed some requests (e.g. out of credits)."""
+    key = ["meta.shape", "stream", "meta.rep"]
+    ok = ta[(ta.ok == True) & ta["meta.rep"].notna()]  # noqa: E712
+    cols = ["ttft_ms", "e2e_ms", "input_tokens", "output_tokens", "cost_usd"]
+    r = ok[ok.system == ref].drop_duplicates(key).set_index(key)[cols]
+    v = ok[ok.system == rival].drop_duplicates(key).set_index(key)[cols]
+    return r.join(v, lsuffix="_r", rsuffix="_v", how="inner").reset_index()
+
+
+def _row_list_cost(r: dict, catalog: dict | None):
+    pr = _catalog_price(catalog or {}, r.get("model_served")) or _catalog_price(catalog or {}, r.get("model_requested"))
+    it, ot = r.get("input_tokens"), r.get("output_tokens")
+    if pr and it is not None and ot is not None and it == it and ot == ot:
+        return (it * pr["input"] + ot * pr["output"]) / 1e6
+    rep = r.get("cost_reported")
+    return float(rep) if rep is not None and rep == rep else None
+
+
+def billing_analysis(df: pd.DataFrame, catalog: dict | None, billing: dict, ref: str, rival: str,
+                     pairs: pd.DataFrame | None) -> dict:
+    """Compare what each gateway actually charged (entered from its dashboard, or reported per request)
+    with list price for the tokens it processed, then price the same work for both."""
+    ok = df[df.ok == True]  # noqa: E712
+    sides = {}
+    for s_ in (ref, rival):
+        g = ok[ok.system == s_]
+        costs = [_row_list_cost(r, catalog) for r in g.to_dict("records")]
+        known = [c for c in costs if c is not None]
+        reported = g.cost_reported.dropna()
+        billed, src = billing.get(s_), "entered"
+        if billed is None and len(reported) and len(reported) == len(g):
+            billed, src = float(reported.sum()), "reported by API"
+        if billed is None:
+            src = None
+        lst = float(sum(known)) if known else None
+        sides[s_] = {"requests": int(len(g)), "requests_failed": int((df.system == s_).sum() - len(g)),
+                     "tokens_in": int(g.input_tokens.fillna(0).sum()), "tokens_out": int(g.output_tokens.fillna(0).sum()),
+                     "list_cost": lst, "unpriced": int(len(costs) - len(known)), "billed": billed, "billed_source": src,
+                     "reported_total": float(reported.sum()) if len(reported) else None,
+                     "ratio": (billed / lst) if (billed is not None and lst) else None}
+    same = None
+    if pairs is not None and len(pairs):
+        # list cost of the work both completed: matched Track A requests, priced per side then averaged
+        ta_ok = ok[ok.track == "A"]
+        cells = []
+        for (shape, stream), g in ta_ok.groupby(["meta.shape", "stream"]):
+            n_r, n_v = int((g.system == ref).sum()), int((g.system == rival).sum())
+            per = [c for c in (_row_list_cost(x, catalog) for x in g.to_dict("records")) if c is not None]
+            if per and min(n_r, n_v):
+                cells.append(min(n_r, n_v) * float(np.mean(per)))
+        same_list = float(sum(cells)) if cells else None
+        same = {"requests": int(len(pairs)), "list_cost": same_list,
+                "cost": {k: (v["ratio"] * same_list if (v["ratio"] is not None and same_list) else None) for k, v in sides.items()}}
+    return {"sides": sides, "same_work": same, "note": billing.get("note") or ""}
+
+
 def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "concentrate",
-                  rival: str = "openrouter", load_cfg: dict | None = None, catalog: dict | None = None) -> dict:
+                  rival: str = "openrouter", load_cfg: dict | None = None, catalog: dict | None = None,
+                  billing: dict | None = None) -> dict:
     run_dir = Path(run_dir)
     files = sorted(run_dir.glob("*.jsonl"))
     if not files:
@@ -183,13 +255,33 @@ def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "conc
         a_tab = A.track_a_summary(df, prices)
         out["track_a"] = _records(a_tab)
         ta = A.add_costs(ta, prices)
-        ok = ta[ta.ok == True]  # noqa: E712
+        ok_all = ta[ta.ok == True]  # noqa: E712
+        # If one side failed noticeably more (e.g. ran out of credits), compare speed only on the requests
+        # both completed: the failures cluster on some request types and would skew every percentile.
+        fail = {k: 1 - ta[ta.system == k].ok.mean() for k in (ref, rival) if (ta.system == k).any()}
+        basis = "all"
+        ok = ok_all
+        if len(fail) == 2 and abs(fail[ref] - fail[rival]) > 0.02:
+            keys = paired_requests(ta, ref, rival)[["meta.shape", "stream", "meta.rep"]]
+            if len(keys):
+                ok = ok_all.merge(keys, on=["meta.shape", "stream", "meta.rep"], how="inner")
+                basis = "matched"
+        out["latency_basis"] = basis
+        basis_note = f"matched requests only ({int((ok.system == ref).sum())} each), since failure rates differ" if basis == "matched" else None
         r_ok, v_ok = ok[ok.system == ref], ok[ok.system == rival]
+        # time to first token only means something when streaming (non-streaming "first token" = whole answer)
+        streamed = ok[ok.stream == True]  # noqa: E712
+        tt = streamed if len(streamed) else ok
+        r_tt, v_tt = tt[tt.system == ref], tt[tt.system == rival]
+        tt_note = (f"streaming requests ({int((tt.system == ref).sum())} each)" if len(streamed)
+                   else "non-streaming: first token = full response") + \
+            ("; matched requests only, since failure rates differ" if basis == "matched" else "")
         if len(r_ok) and len(v_ok):
-            for q, tag in ((.5, "p50"), (.99, "p99")):
-                est, lo, hi = A.bootstrap_diff_ci(r_ok.ttft_ms, v_ok.ttft_ms, q=q, n=2000)
+            for q, tag in ((.5, "p50"), (.9, "p90"), (.99, "p99")):
+                est, lo, hi = A.bootstrap_diff_ci(r_tt.ttft_ms, v_tt.ttft_ms, q=q, n=2000)
                 metrics.append(_metric(f"ttft_{tag}", f"Time to first token ({tag})", "ms", "lower", "A", ref, rival,
-                                       float(r_ok.ttft_ms.quantile(q)), float(v_ok.ttft_ms.quantile(q)), ci=[lo, hi]))
+                                       float(r_tt.ttft_ms.quantile(q)), float(v_tt.ttft_ms.quantile(q)), ci=[lo, hi],
+                                       note=tt_note))
             base = ta.baseline.dropna().iloc[0] if ta.baseline.notna().any() else None
             b_ok = ok[ok.system == base] if base else pd.DataFrame()
             if len(b_ok):
@@ -197,6 +289,25 @@ def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "conc
                 metrics.append(_metric("overhead_p50", "Added latency vs direct call (p50)", "ms", "lower", "A",
                                        ref, rival, float(r_ok.ttft_ms.median()) - bp50, float(v_ok.ttft_ms.median()) - bp50,
                                        note=f"compared with {base}"))
+            for q, tag in ((.5, "p50"), (.99, "p99")):
+                est, lo, hi = A.bootstrap_diff_ci(r_ok.e2e_ms, v_ok.e2e_ms, q=q, n=2000)
+                metrics.append(_metric(f"e2e_{tag}", f"Total response time ({tag})", "ms", "lower", "A", ref, rival,
+                                       float(r_ok.e2e_ms.quantile(q)), float(v_ok.e2e_ms.quantile(q)), ci=[lo, hi],
+                                       note="request sent to last byte" + (f"; {basis_note}" if basis_note else "")))
+            def _spread(g):
+                t = g.ttft_ms.dropna()
+                return float(t.quantile(.99) / t.median()) if len(t) and t.median() else None
+            metrics.append(_metric("consistency", "Tail consistency (TTFT p99 ÷ p50)", "×", "lower", "A", ref, rival,
+                                   _spread(r_tt), _spread(v_tt), note="1× = every request as fast as the typical one; " + tt_note))
+            # slow outliers: TTFT above 2x the combined median of the same cell (size + mode)
+            med = tt.groupby(["meta.shape", "stream"]).ttft_ms.median().rename("cell_med")
+            okm = tt.join(med, on=["meta.shape", "stream"])
+            def _slow(g):
+                g = g[g.ttft_ms.notna()]
+                return float((g.ttft_ms > 2 * g.cell_med).mean() * 100) if len(g) else None
+            metrics.append(_metric("slow_share", "Slow outliers (TTFT over 2× typical)", "%", "lower", "A", ref, rival,
+                                   _slow(okm[okm.system == ref]), _slow(okm[okm.system == rival]),
+                                   note="typical = median of both gateways for the same size and mode"))
             tps_r, tps_v = r_ok.output_tps.dropna(), v_ok.output_tps.dropna()
             if len(tps_r) and len(tps_v):
                 est, lo, hi = A.bootstrap_diff_ci(tps_r, tps_v, q=.5, n=2000)
@@ -212,8 +323,31 @@ def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "conc
             if sr == 0 and sv == 0:
                 m.update(winner=None, note="no request succeeded on either side, see Errors")
             metrics.append(m)
+        pairs = paired_requests(ta, ref, rival)
+        out["pairs_n"] = int(len(pairs))
+        if len(pairs):
+            ps = pairs[pairs.stream == True] if (pairs.stream == True).any() else pairs  # noqa: E712
+            d = (ps.ttft_ms_r - ps.ttft_ms_v).dropna()
+            if len(d):
+                metrics.append(_metric("ttft_matched", "Head-to-head: time to first token on the same requests", "ms", "lower",
+                                       "A", ref, rival, float(ps.ttft_ms_r.median()), float(ps.ttft_ms_v.median()),
+                                       ci=_boot_median_ci(d),
+                                       note=f"{len(d)} streaming request pairs; {ref.title()} got the first token sooner in {nice_pct((d < 0).mean())} of them"))
+            tr = (pairs.input_tokens_r.fillna(0) + pairs.output_tokens_r.fillna(0)).mean()
+            tv = (pairs.input_tokens_v.fillna(0) + pairs.output_tokens_v.fillna(0)).mean()
+            metrics.append(_metric("tokens_counted", "Tokens counted per matched request", "tok", "lower", "A", ref, rival,
+                                   float(tr), float(tv), note="same prompts and limits; a gap means different token accounting (billing)"))
+            rows = []
+            for (shape, stream), g in pairs.groupby(["meta.shape", "stream"]):
+                rows.append({"shape": shape, "stream": bool(stream), "pairs": int(len(g)),
+                             "ttft_r": float(g.ttft_ms_r.median()) if g.ttft_ms_r.notna().any() else None,
+                             "ttft_v": float(g.ttft_ms_v.median()) if g.ttft_ms_v.notna().any() else None,
+                             "e2e_r": float(g.e2e_ms_r.median()), "e2e_v": float(g.e2e_ms_v.median()),
+                             "faster_share": (lambda b: float((b.ttft_ms_r < b.ttft_ms_v).mean() * 100) if len(b) else None)(
+                                 g[g.ttft_ms_r.notna() & g.ttft_ms_v.notna()])})
+            out["paired"] = rows
         out["cdf"] = {}
-        for (shape, stream), g in ok.groupby(["meta.shape", "stream"]):
+        for (shape, stream), g in ok_all.groupby(["meta.shape", "stream"]):
             key = f"{shape}|{'stream' if stream else 'plain'}"
             out["cdf"][key] = {s: _cdf(sg.ttft_ms) for s, sg in g.groupby("system")}
 
@@ -264,6 +398,20 @@ def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "conc
         if ref in set(ld.system) and rival in set(ld.system):
             metrics.append(_metric("max_rps", "Max sustained load (p99 within SLO)", "req/s", "higher", "load",
                                    ref, rival, float(ms.get(ref, 0.0)), float(ms.get(rival, 0.0))))
+
+    ta_all = df[(df.track == "A") & (df["meta.warmup"] != True)]  # noqa: E712
+    bill = billing_analysis(df, catalog, billing or {}, ref, rival,
+                            paired_requests(ta_all, ref, rival) if len(ta_all) else None)
+    out["billing"] = bill
+    sd = bill["sides"]
+    if sd[ref]["ratio"] is not None and sd[rival]["ratio"] is not None:
+        metrics.append(_metric("billed_ratio", "Charged ÷ list price", "×", "lower", "billing", ref, rival,
+                               sd[ref]["ratio"], sd[rival]["ratio"], note="1× = list price for the tokens processed"))
+        sw = bill.get("same_work") or {}
+        c = sw.get("cost") or {}
+        if c.get(ref) is not None and c.get(rival) is not None:
+            metrics.append(_metric("billed_same_work", "Charged for identical work", "$", "lower", "billing", ref, rival,
+                                   c[ref], c[rival], note=f"{sw['requests']} requests both completed, at each one's actual charge rate"))
 
     decided = [m for m in metrics if m.get("winner") in (ref, rival)]
     out["score"] = {

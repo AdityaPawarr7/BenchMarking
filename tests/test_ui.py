@@ -223,3 +223,62 @@ def test_temperature_omitted_when_none():
     asyncio.run(go(None)); asyncio.run(go(0.0))
     srv.shutdown()
     assert "temperature" not in seen[0] and seen[1]["temperature"] == 0.0
+
+
+def _fake_track_a(tmp_path, ref_fail_every=0, rival_fail_every=3):
+    """Two gateways, same model and tokens; the rival 'runs out of credits' on some requests and is
+    slower to first token. Returns the run dir."""
+    import json
+    rows = []
+    for sys_, base_ttft, fail_every in (("concentrate", 1000, ref_fail_every), ("openrouter", 1500, rival_fail_every)):
+        for shape, tin in (("tiny", 100), ("long", 40000)):
+            for rep in range(12):
+                fail = fail_every and shape == "long" and rep % fail_every == 0
+                rows.append({"track": "A", "system": sys_, "model_requested": "m", "model_served": "m", "stream": True,
+                             "status": 402 if fail else 200, "ok": not fail, "error": "status 402: out of credits" if fail else None,
+                             "ttft_ms": None if fail else base_ttft + rep * 10 + (5000 if shape == "long" else 0),
+                             "e2e_ms": 20.0 if fail else 8000.0 + rep, "input_tokens": None if fail else tin,
+                             "output_tokens": None if fail else 500, "output_tps": None if fail else 100.0,
+                             "cost_reported": (None if sys_ == "concentrate" or fail else (tin * 4 + 500 * 20) / 1e6),
+                             "baseline": None, "meta": {"shape": shape, "warmup": False, "rep": rep}})
+    (tmp_path / "track_a.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
+    (tmp_path / "prices.yaml").write_text("models: {}\n")
+    return tmp_path
+
+
+def test_matched_requests_and_billing(tmp_path):
+    from gateway_bench.ui.summary import build_summary
+    d = _fake_track_a(tmp_path)
+    cat = {"m": {"input": 4.0, "output": 20.0}}
+    # concentrate charged 10% over list; openrouter exactly list (its per-request costs)
+    lst_ref = (12 * (100 * 4 + 500 * 20) + 12 * (40000 * 4 + 500 * 20)) / 1e6
+    out = build_summary(d, d / "prices.yaml", catalog=cat, billing={"concentrate": round(lst_ref * 1.10, 6)})
+    assert out["latency_basis"] == "matched"                    # rival failed 4/24, ref 0/24
+    keys = {m["key"]: m for m in out["metrics"]}
+    for k in ("ttft_p50", "ttft_p90", "ttft_p99", "e2e_p50", "e2e_p99", "consistency", "slow_share",
+              "ttft_matched", "tokens_counted", "billed_ratio", "billed_same_work"):
+        assert k in keys, k
+    assert keys["ttft_matched"]["winner"] == "concentrate" and keys["ttft_matched"]["significant"]
+    assert keys["tokens_counted"]["winner"] == "tie"
+    b = out["billing"]
+    assert b["sides"]["openrouter"]["billed_source"] == "reported by API"
+    assert abs(b["sides"]["concentrate"]["ratio"] - 1.10) < 1e-6 and abs(b["sides"]["openrouter"]["ratio"] - 1.0) < 1e-6
+    sw = b["same_work"]
+    assert sw["requests"] == 20                                   # 24 minus the rival's 4 failures
+    assert abs(sw["cost"]["concentrate"] / sw["cost"]["openrouter"] - 1.10) < 1e-6
+    assert keys["billed_same_work"]["winner"] == "openrouter"
+
+
+def test_billing_endpoint_roundtrip(tmp_path, monkeypatch):
+    import json
+    from gateway_bench.ui import server
+    monkeypatch.setattr(server, "RUNS_DIR", tmp_path)
+    run = tmp_path / "r1"
+    run.mkdir()
+    (run / "state.json").write_text(json.dumps({"id": "r1", "status": "done", "options": {"mode": "demo"}}))
+    _fake_track_a(run)
+    with TestClient(server.app) as c:
+        assert c.post("/api/runs/r1/billing", json={"concentrate": 12.5, "openrouter": None, "note": "test"}).json()["ok"]
+        assert c.post("/api/runs/r1/billing", json={"concentrate": -1}).status_code == 422
+        res = c.get("/api/runs/r1/results").json()
+    assert res["billing"]["sides"]["concentrate"]["billed"] == 12.5 and res["billing"]["note"] == "test"

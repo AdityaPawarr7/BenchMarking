@@ -79,6 +79,16 @@ gbench ui                         # open http://127.0.0.1:8765
 - **Grader:** open-ended questions can be graded through OpenRouter (pick a grader model), so no
   OpenAI key is needed. Direct-provider baselines and single-model reference points switch off
   automatically when their keys aren't set.
+- **Fairness checks:** (1) enter what each dashboard charged for a run; the page compares it with
+  list price for the tokens each side actually processed and prices the *same* work for both, so
+  totals aren't skewed when one side did more requests. (2) When failure rates differ (e.g. one side
+  ran out of credits), every speed metric switches to *matched requests*: only requests both
+  gateways completed, paired by size, mode and round.
+- **Metrics:** time to first token p50/p90/p99 (streaming only), head-to-head first token on the same
+  requests, total response time p50/p99, tail consistency (p99÷p50), slow outliers, output speed,
+  success rate, tokens counted per request (billing accounting), cost per 1M tokens, charged ÷ list
+  price, and charged for identical work, plus routing accuracy and cost per correct answer.
+- **Cheapest on both:** the model picker suggests the cheapest models both gateways offer.
 - Every run is saved under `results/ui/<run-id>/` (raw JSONL + the exact configs used), so
   `gbench report results/ui/<run-id>` produces the same analysis as a Markdown report.
 
