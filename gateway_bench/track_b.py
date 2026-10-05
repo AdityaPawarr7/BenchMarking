@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .client import chat, make_client
+from .client import CreditGuard, chat, make_client
 from .config import System, load_yaml
 from .datasets import load_workload
 from .pricing import PriceBook
@@ -99,10 +99,13 @@ async def run_track_b(
     temperature = float(cfg.get("temperature", 0))
     done = 0
 
+    guard = CreditGuard()
     async with make_client() as client:
         async def one(job):
             nonlocal done
             wl, it, c = job
+            if guard.tripped:
+                return
             msgs = ([{"role": "system", "content": it["system"]}] if it.get("system") else []) + \
                    [{"role": "user", "content": it["prompt"]}]
             async with sem:
@@ -126,6 +129,7 @@ async def run_track_b(
                             correct = score_sync(scorer, r.text, it)
                         except RuntimeError as e:
                             log(f"[warn] {e}")
+            guard.record(r)
             rec = r.to_dict()
             cost, src = prices.cost(rec)
             rec.update({"correct": correct, "cost_usd": cost, "cost_source": src, "judge_cost_usd": judge_cost,
@@ -140,5 +144,6 @@ async def run_track_b(
         await asyncio.gather(*(one(j) for j in jobs))
 
     writer.close()
+    guard.check()
     log(f"Track B results -> {out}")
     return out

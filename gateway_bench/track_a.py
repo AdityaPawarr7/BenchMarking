@@ -6,7 +6,7 @@ import random
 import time
 from pathlib import Path
 
-from .client import chat, make_client
+from .client import CreditGuard, chat, make_client
 from .config import System, load_yaml
 from .prompts import shape_messages
 from .results import ResultWriter
@@ -60,16 +60,20 @@ async def run_track_a(
     done = 0
     total = len(warm_jobs) + len(jobs)
 
+    guard = CreditGuard()
     async with make_client(max_connections=conc * 2) as client:
         async def one(job):
             nonlocal done
             s, sh, st, is_warm, rep = job
             async with sem:
+                if guard.tripped:
+                    return
                 r = await chat(
                     client, s, s.model_for(alias), shape_messages(sh["input_tokens"], sh["output_tokens"], nonce=nonce),
                     max_tokens=int(sh["output_tokens"]), temperature=temperature, stream=bool(st),
                     meta={"shape": sh["name"], "warmup": is_warm, "rep": rep},
                 )
+            guard.record(r)
             rec = r.to_dict()
             rec.pop("text", None)            # Track A doesn't need output text
             writer.write(rec)
@@ -84,5 +88,6 @@ async def run_track_a(
         await asyncio.gather(*(one(j) for j in jobs))
 
     writer.close()
+    guard.check()
     log(f"Track A results -> {out}")
     return out

@@ -1,6 +1,7 @@
 """Async OpenAI-compatible client that records timing, tokens, served model and cost."""
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -23,7 +24,8 @@ class CallResult:
     ok: bool = False
     error: str | None = None
     t_start: float = 0.0          # unix time (s) the request was sent
-    ttft_ms: float | None = None  # time to first content token (stream) or to full response (non-stream)
+    ttft_ms: float | None = None  # time to first token of any kind incl. reasoning (stream) or full response (non-stream)
+    first_text_ms: float | None = None  # time to first visible answer text (stream)
     e2e_ms: float | None = None   # time to last byte
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -95,10 +97,13 @@ async def chat(
     res.t_start = time.time()
     t0 = time.perf_counter()
     try:
-        if stream:
-            await _do_stream(client, url, headers, body, res, t0, system.timeout_s)
-        else:
-            await _do_plain(client, url, headers, body, res, t0, system.timeout_s)
+        # httpx's timeout is per read, so a connection that keeps trickling bytes never times out.
+        # wait_for caps the whole request.
+        coro = (_do_stream if stream else _do_plain)(client, url, headers, body, res, t0, system.timeout_s)
+        await asyncio.wait_for(coro, timeout=system.timeout_s)
+    except asyncio.TimeoutError:
+        res.ok = False
+        res.error = f"timeout: no complete response within {system.timeout_s:.0f}s"
     except httpx.TimeoutException as e:
         res.error = f"timeout: {e!r}"
     except httpx.HTTPError as e:
@@ -161,11 +166,16 @@ async def _do_stream(client, url, headers, body, res: CallResult, t0: float, tim
             if chunk.get("model") and not res.model_served:
                 res.model_served = chunk["model"]
             for ch in chunk.get("choices") or []:
-                delta = (ch.get("delta") or {}).get("content")
-                if delta:
-                    if res.ttft_ms is None:
-                        res.ttft_ms = (time.perf_counter() - t0) * 1000
-                    parts.append(delta)
+                d = ch.get("delta") or {}
+                text = d.get("content")
+                thinking = d.get("reasoning") or d.get("reasoning_content") or d.get("thinking") \
+                    or d.get("reasoning_details")
+                if (text or thinking) and res.ttft_ms is None:
+                    res.ttft_ms = (time.perf_counter() - t0) * 1000
+                if text:
+                    if res.first_text_ms is None:
+                        res.first_text_ms = (time.perf_counter() - t0) * 1000
+                    parts.append(text)
             usage = chunk.get("usage")
             if usage:
                 res.input_tokens = usage.get("prompt_tokens")
@@ -187,3 +197,29 @@ def _interesting_headers(headers: httpx.Headers) -> dict[str, str]:
 def make_client(max_connections: int = 256) -> httpx.AsyncClient:
     limits = httpx.Limits(max_connections=max_connections, max_keepalive_connections=max_connections)
     return httpx.AsyncClient(limits=limits, http2=False)
+
+
+class OutOfCredits(RuntimeError):
+    pass
+
+
+class CreditGuard:
+    """Stops a run when a gateway keeps answering 402 (out of credits): the remaining requests
+    would only fail, and the other gateway's requests would be wasted money."""
+
+    def __init__(self, limit: int = 5):
+        self.limit, self.streak, self.tripped = limit, {}, None
+
+    def record(self, r: "CallResult") -> None:
+        # Count every 402, not just consecutive ones: when credits run low, cheap requests still pass
+        # while expensive ones fail, so failures interleave with successes and skew the sample.
+        if r.status == 402:
+            self.streak[r.system] = self.streak.get(r.system, 0) + 1
+            if self.streak[r.system] >= self.limit and not self.tripped:
+                self.tripped = (f"{r.system} returned 402 (out of credits) {self.limit} times; stopped the run so "
+                                f"the comparison isn't skewed and no more money is spent. Top up {r.system} and "
+                                f"run again. Last error: {(r.error or '')[:200]}")
+
+    def check(self) -> None:
+        if self.tripped:
+            raise OutOfCredits(self.tripped)
