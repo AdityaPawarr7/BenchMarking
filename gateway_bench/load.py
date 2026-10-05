@@ -46,7 +46,8 @@ async def run_load(
                 t_end = time.perf_counter() + duration
                 while time.perf_counter() < t_end:
                     msgs = shape_messages(shape["input_tokens"], shape["output_tokens"], nonce=True)
-                    tasks.append(asyncio.create_task(_one(client, s, alias, msgs, shape, stream, rate, writer)))
+                    tasks.append(asyncio.create_task(_one(client, s, alias, msgs, shape, stream, rate, writer,
+                                                          cfg.get("temperature", 0))))
                     await asyncio.sleep(rng.expovariate(rate))   # open loop: don't wait for responses
                 await asyncio.gather(*tasks)
                 step_i += 1
@@ -57,9 +58,9 @@ async def run_load(
     return out
 
 
-async def _one(client, s, alias, msgs, shape, stream, rate, writer):
+async def _one(client, s, alias, msgs, shape, stream, rate, writer, temperature=0):
     r = await chat(client, s, s.model_for(alias), msgs, max_tokens=int(shape["output_tokens"]),
-                   stream=stream, meta={"target_rps": rate})
+                   stream=stream, temperature=temperature, meta={"target_rps": rate})
     rec = r.to_dict()
     rec.pop("text", None)
     writer.write(rec)

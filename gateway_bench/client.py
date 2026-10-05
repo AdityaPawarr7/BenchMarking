@@ -61,7 +61,7 @@ async def chat(
     messages: list[dict[str, Any]],
     *,
     max_tokens: int = 512,
-    temperature: float = 0.0,
+    temperature: float | None = 0.0,
     stream: bool = True,
     seed: int | None = 1234,
     extra_body: dict[str, Any] | None = None,
@@ -71,9 +71,10 @@ async def chat(
         "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
-        "temperature": temperature,
         "stream": stream,
     }
+    if temperature is not None:
+        body["temperature"] = temperature
     if seed is not None:
         body["seed"] = seed
     if stream:

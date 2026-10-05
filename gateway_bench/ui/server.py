@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import re
 import json
 import os
 import threading
@@ -181,8 +182,16 @@ def resolve_model_setup(o: "RunOptions", systems: dict[str, System], mode: str, 
         return alias, gw, (base if (base and base.available) else None), info
 
     alias = "__run__"
+    ref_entry = None
+    if mode == "live":
+        refs, _ = fetch_ref_models()
+        ref_entry = match_ref_model(o.ref_model.strip() or o.model, refs)
+    ref_id = o.ref_model.strip() or (ref_entry["id"] if ref_entry else o.model)
+    if not o.ref_model.strip() and ref_entry and ref_id != o.model:
+        log(f"[info] Concentrate's name for {o.model} is {ref_id} (from its model list)")
+    info["ref_entry"] = ref_entry
     for s_ in gw:
-        s_.models[alias] = (o.ref_model.strip() or o.model) if s_.name == REF else o.model
+        s_.models[alias] = ref_id if s_.name == REF else o.model
         info["ids"][s_.name] = s_.models[alias]
         if o.upstream:
             if s_.pin:
@@ -215,14 +224,15 @@ def resolve_model_setup(o: "RunOptions", systems: dict[str, System], mode: str, 
     return alias, gw, baseline, info
 
 
-async def preflight(run: Run, test: str, checks: list[tuple[System, str, bool]]) -> list[str]:
+async def preflight(run: Run, test: str, checks: list[tuple[System, str, bool]], temperature=0.0) -> list[str]:
     """Send one tiny request per (system, model) with the run's exact settings. Returns names that
     failed. Results go into run.preflight so the page can show them."""
     from ..client import chat, make_client
     failed = []
     async with make_client(max_connections=8) as client:
         results = await asyncio.gather(*(chat(client, s_, model, [{"role": "user", "content": "Reply with the word OK."}],
-                                              max_tokens=8, stream=False, seed=None) for s_, model, _ in checks))
+                                              max_tokens=8, stream=False, seed=None, temperature=temperature)
+                                         for s_, model, _ in checks))
     for (s_, model, required), r in zip(checks, results):
         entry = {"test": test, "system": s_.name, "model": model, "ok": r.ok, "status": r.status,
                  "ms": round(r.e2e_ms) if r.e2e_ms else None, "served": r.model_served,
@@ -287,6 +297,13 @@ async def execute(run: Run) -> None:
         ta_base = load_yaml(cfg_dir / "track_a.yaml")
         alias, gw, base_sys, info = resolve_model_setup(o, systems, o.mode, ta_base.get("model_alias", "small"),
                                                         ta_base.get("baseline", BASELINE), run.log)
+        temperature = ta_base.get("temperature", 0)
+        ref_entry = info.pop("ref_entry", None)
+        if ref_entry and ref_entry.get("temperature") is False:
+            temperature = None
+            info["temperature"] = "omitted"
+            run.log(f"[info] Concentrate says {ref_entry['id']} doesn't accept temperature; "
+                    "leaving it unset for both gateways so the requests stay identical")
         run.models = info
         if o.model and o.mode == "live":
             _write_run_prices(run.dir, o.model, info)
@@ -298,7 +315,8 @@ async def execute(run: Run) -> None:
                 names_sys.append(base_sys)
             elif o.include_baseline:
                 run.log("[skip] no direct-provider baseline available, so added delay vs direct won't be shown")
-            bad = await preflight(run, "Speed & fees", [(s_, s_.model_for(alias), s_.name in (REF, RIVAL)) for s_ in names_sys])
+            bad = await preflight(run, "Speed & fees", [(s_, s_.model_for(alias), s_.name in (REF, RIVAL)) for s_ in names_sys],
+                                  temperature=temperature)
             if any(n in (REF, RIVAL) for n in bad):
                 raise RuntimeError(_fail_msg(run, [n for n in bad if n in (REF, RIVAL)]))
             if base_sys and base_sys.name in bad:
@@ -306,7 +324,7 @@ async def execute(run: Run) -> None:
                 base_sys = None
                 run.log("[skip] direct baseline failed its check; continuing without it")
             cfg = {**ta_base, "baseline": base_sys.name if (o.include_baseline and base_sys and base_sys in names_sys) else None,
-                   "model_alias": alias, "stream_modes": o.stream_modes or [True],
+                   "model_alias": alias, "stream_modes": o.stream_modes or [True], "temperature": temperature,
                    "requests_per_cell": o.requests_per_cell, "warmup_requests": o.warmup}
             if o.shapes:
                 cfg["shapes"] = [s_ for s_ in ta_base["shapes"] if s_["name"] in o.shapes]
@@ -349,9 +367,9 @@ async def execute(run: Run) -> None:
         if o.load:
             base = load_yaml(cfg_dir / "load.yaml")
             cfg = {**base, "rates_rps": o.rates or base["rates_rps"], "step_duration_s": o.step_duration_s,
-                   "model_alias": alias}
+                   "model_alias": alias, "temperature": temperature}
             if not o.track_a:
-                bad = await preflight(run, "Load", [(s_, s_.model_for(alias), True) for s_ in gw])
+                bad = await preflight(run, "Load", [(s_, s_.model_for(alias), True) for s_ in gw], temperature=temperature)
                 if bad:
                     raise RuntimeError(_fail_msg(run, bad))
             path = _write_yaml(run.dir / "cfg_load.yaml", cfg)
@@ -504,29 +522,77 @@ def list_models(refresh: bool = False):
     return {"models": rows, "error": err}
 
 
-_REF_MODELS: dict[str, Any] = {"t": 0.0, "ids": None}
+_REF_MODELS: dict[str, Any] = {"t": 0.0, "models": None, "error": None}
 
 
-@app.get("/api/ref-models")
-def ref_models():
-    """Model ids Concentrate lists at GET {base_url}/models (OpenAI-style), if it offers that."""
-    if _REF_MODELS["ids"] is not None and time.time() - _REF_MODELS["t"] < 3600:
-        return {"ids": _REF_MODELS["ids"], "error": None}
+def _norm(x: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(x).lower())
+
+
+def fetch_ref_models(force: bool = False) -> tuple[list[dict], str | None]:
+    """Concentrate's GET /models: [{id, aliases, author, price {input, output} (cheapest provider),
+    providers, temperature}]. Cached for an hour."""
+    if not force and _REF_MODELS["models"] is not None and time.time() - _REF_MODELS["t"] < 3600:
+        return _REF_MODELS["models"], None
     import httpx
     try:
         s_ = load_systems(_cfg_dir("live") / "systems.yaml")[REF]
         if not s_.available:
-            return {"ids": [], "error": f"{s_.api_key_env} not set"}
+            return [], f"{s_.api_key_env} not set"
         from ..client import build_headers
-        r = httpx.get(f"{s_.base_url}/models", headers=build_headers(s_), timeout=15)
+        r = httpx.get(f"{s_.base_url}/models", headers=build_headers(s_), timeout=20)
         r.raise_for_status()
         body = r.json()
         items = body.get("data", body) if isinstance(body, dict) else body
-        ids = sorted({(x.get("id") if isinstance(x, dict) else str(x)) for x in items if x})
     except Exception as e:  # noqa: BLE001
-        return {"ids": [], "error": f"Concentrate model list unavailable: {e}"}
-    _REF_MODELS.update(t=time.time(), ids=ids)
-    return {"ids": ids, "error": None}
+        return (_REF_MODELS["models"] or []), f"Concentrate model list unavailable: {e}"
+    out = []
+    for x in items or []:
+        if not isinstance(x, dict):
+            out.append({"id": str(x), "aliases": [], "author": None, "price": None, "providers": [], "temperature": None})
+            continue
+        prices, temps = [], []
+        for pv in (x.get("providers") or {}).values():
+            try:
+                t = pv["pricing"][0]["tokens"]
+                prices.append((float(t["input"]["price"]["USD"]) / float(t["input"].get("units", 1e6)) * 1e6,
+                               float(t["output"]["price"]["USD"]) / float(t["output"].get("units", 1e6)) * 1e6))
+            except (KeyError, IndexError, TypeError, ValueError, ZeroDivisionError):
+                pass
+            sup = (pv.get("supports") or {}).get("temperature")
+            if sup is not None:
+                temps.append(bool(sup))
+        cheapest = min(prices, key=lambda p: p[0] + p[1]) if prices else None
+        out.append({"id": x.get("id") or x.get("slug"), "aliases": x.get("aliases") or [],
+                    "author": (x.get("author") or {}).get("slug") if isinstance(x.get("author"), dict) else x.get("author"),
+                    "price": {"input": cheapest[0], "output": cheapest[1]} if cheapest else None,
+                    "providers": list((x.get("providers") or {}).keys()),
+                    "temperature": (any(temps) if temps else None)})
+    _REF_MODELS.update(t=time.time(), models=out, error=None)
+    return out, None
+
+
+def match_ref_model(model: str, ref_models: list[dict]) -> dict | None:
+    """Map an OpenRouter-style id ("anthropic/claude-opus-5.5") to Concentrate's model entry by id,
+    then alias, then a punctuation-insensitive comparison (5.5 == 5-5)."""
+    if not model:
+        return None
+    tail = model.split("/", 1)[-1]
+    for want in (model, tail):
+        for m in ref_models:
+            if want == m["id"] or want in m["aliases"]:
+                return m
+    for want in (_norm(model), _norm(tail)):
+        for m in ref_models:
+            if want in {_norm(m["id"]), *(_norm(a) for a in m["aliases"])}:
+                return m
+    return None
+
+
+@app.get("/api/ref-models")
+def ref_models(refresh: bool = False):
+    models, err = fetch_ref_models(force=refresh)
+    return {"ids": [m["id"] for m in models], "models": models, "error": err}
 
 
 @app.get("/api/models/{author}/{slug}/providers")
@@ -621,6 +687,11 @@ def get_results(run_id: str):
             pi, po = _per_m(pr.get("prompt")), _per_m(pr.get("completion"))
             if pi is not None and po is not None and (pi or po):
                 catalog[m["id"]] = {"input": pi, "output": po}
+        refs, _ = fetch_ref_models()
+        for m in refs:
+            if m.get("price"):
+                for key in (m["id"], *m["aliases"]):
+                    catalog.setdefault(key, m["price"])
     summary = build_summary(run_dir, prices, REF, RIVAL, load_cfg, catalog=catalog)
     summary["mode"] = mode
     summary["models"] = st.get("models") or {}

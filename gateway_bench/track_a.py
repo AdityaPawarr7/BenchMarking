@@ -31,7 +31,7 @@ async def run_track_a(
     warmup = int(cfg.get("warmup_requests", 0))
     conc = int(cfg.get("concurrency", 8))
     nonce = bool(cfg.get("nonce", True))
-    temperature = float(cfg.get("temperature", 0))
+    temperature = cfg.get("temperature", 0)          # None = leave unset (model doesn't accept it)
 
     usable = []
     for s in systems:

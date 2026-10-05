@@ -266,7 +266,7 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
             <label for="refModel" class="lbl">Concentrate's name for this model</label>
             <input type="text" id="refModel" class="full" style="margin-top:0" list="refModelList" spellcheck="false">
             <datalist id="refModelList"></datalist>
-            <div class="small muted" id="refHelp" style="margin-top:4px">Filled in for you: Concentrate uses dashes in version numbers (claude-opus-5-5, not 5.5). The pre-run check confirms it.</div>
+            <div class="small muted" id="refHelp" style="margin-top:4px">Filled in from Concentrate's model list (its IDs and aliases, e.g. claude-opus-5-5). The pre-run check confirms it.</div>
           </div>
           <label for="upSel" style="margin-top:10px">Served by</label>
           <select id="upSel" class="full"><option value="">Any provider (each gateway decides)</option></select>
@@ -676,6 +676,7 @@ async function onModelChange() {
   const model = currentModel();
   $("#refRow").classList.toggle("hidden", !model);
   if (!$("#refModel").dataset.touched) $("#refModel").value = guessRefName(model);
+  refMatchNote(model);
   const up = $("#upSel");
   const id = ++mstate.reqId;
   if (!model) {
@@ -758,7 +759,7 @@ $("#modelSel").addEventListener("change", () => { delete $("#directId").dataset.
 let customT; $("#modelCustom").addEventListener("input", () => { clearTimeout(customT); customT = setTimeout(() => { delete $("#directId").dataset.touched; onModelChange(); }, 500); });
 $("#upSel").addEventListener("change", () => { delete $("#directId").dataset.touched; onUpstreamChange(); });
 $("#directId").addEventListener("input", () => { $("#directId").dataset.touched = "1"; updateSysModels(); });
-$("#refModel").addEventListener("input", () => { $("#refModel").dataset.touched = $("#refModel").value ? "1" : ""; if (!$("#refModel").value) delete $("#refModel").dataset.touched; updateSysModels(); });
+$("#refModel").addEventListener("input", () => { $("#refModel").dataset.touched = $("#refModel").value ? "1" : ""; if (!$("#refModel").value) delete $("#refModel").dataset.touched; updateSysModels(); refMatchNote(currentModel()); });
 $("#modelSel").addEventListener("change", () => { delete $("#refModel").dataset.touched; });
 // Concentrate writes versions with dashes ("anthropic/claude-opus-5-5") where OpenRouter uses dots
 // ("anthropic/claude-opus-5.5"). Prefer an exact match from Concentrate's own model list; otherwise
@@ -766,20 +767,38 @@ $("#modelSel").addEventListener("change", () => { delete $("#refModel").dataset.
 const normId = id => String(id || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 function guessRefName(model) {
   if (!model) return "";
-  const ids = mstate.refIds || [];
-  const hit = ids.find(id => id === model) || ids.find(id => normId(id) === normId(model))
-    || ids.find(id => normId(id.split("/").pop()) === normId(model.split("/").pop()));
-  if (hit) return hit;
+  const refs = mstate.refModels || [], tail = model.split("/").pop();
+  const keys = m => [m.id, ...(m.aliases || [])];
+  const hit = refs.find(m => keys(m).includes(model) || keys(m).includes(tail))
+    || refs.find(m => keys(m).some(k => normId(k) === normId(model) || normId(k) === normId(tail)));
+  if (hit) return hit.id;
+  if (refs.length) return model;
   const i = model.indexOf("/");
   return i < 0 ? model.replace(/\./g, "-") : model.slice(0, i + 1) + model.slice(i + 1).replace(/\./g, "-");
+}
+function refMatchNote(model) {
+  const refs = mstate.refModels || [], help = $("#refHelp");
+  if (!model || !refs.length) return;
+  const v = $("#refModel").value.trim();
+  const m = refs.find(r => r.id === v || (r.aliases || []).includes(v));
+  if (m) {
+    const p = m.price ? ` · Concentrate list price $${m.price.input}/$${m.price.output} per 1M (cheapest provider)` : "";
+    help.innerHTML = `Matched <code>${esc(m.id)}</code> in Concentrate's model list${p}${m.temperature === false ? ". It doesn't take temperature, so temperature is left unset for both gateways." : "."}`;
+    help.style.color = "";
+  } else {
+    help.innerHTML = `<b>Not found</b> in Concentrate's list of ${refs.length} models. Start typing to pick its equivalent; the closest names may be a different variant.`;
+    help.style.color = "var(--warn)";
+  }
 }
 async function loadRefModels() {
   if (state.mode !== "live") { $("#refModelList").innerHTML = ""; return; }
   try {
     const r = await api("/api/ref-models");
     mstate.refIds = r.ids || [];
+    mstate.refModels = r.models || (r.ids || []).map(id => ({ id, aliases: [] }));
     $("#refModelList").innerHTML = (r.ids || []).map(id => `<option value="${esc(id)}">`).join("");
     if (currentModel() && !$("#refModel").dataset.touched) { $("#refModel").value = guessRefName(currentModel()); updateSysModels(); }
+    refMatchNote(currentModel());
     if (r.ids && r.ids.length) $("#refHelp").textContent = `Concentrate lists ${r.ids.length} models; start typing to pick one. The pre-run check confirms it works.`;
   } catch (e) {}
 }

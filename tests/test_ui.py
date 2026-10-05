@@ -179,3 +179,47 @@ def test_readable_error_and_results_with_failed_rows(tmp_path):
     assert "organization has been disabled" in out["errors"][0]["top_errors"][0]["message"]
     succ = next(m for m in out["metrics"] if m["key"] == "success_a")
     assert succ["winner"] is None
+
+
+def test_match_ref_model_uses_ids_aliases_and_punctuation():
+    from gateway_bench.ui.server import match_ref_model
+    refs = [
+        {"id": "claude-opus-5-5", "aliases": ["claude-opus5.5", "opus-5.5", "opus-5-5"]},
+        {"id": "gpt-5.5", "aliases": ["gpt-5-5", "gpt55"]},
+        {"id": "glm-5.3", "aliases": ["glm5.3", "zhipu-glm-5.3"]},
+    ]
+    assert match_ref_model("anthropic/claude-opus-5.5", refs)["id"] == "claude-opus-5-5"   # 5.5 vs 5-5
+    assert match_ref_model("opus-5.5", refs)["id"] == "claude-opus-5-5"                    # alias
+    assert match_ref_model("openai/gpt-5-5", refs)["id"] == "gpt-5.5"
+    assert match_ref_model("z-ai/glm-5.3-prime", refs) is None                             # different SKU: no guess
+
+
+def test_temperature_omitted_when_none():
+    import asyncio
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from gateway_bench.client import chat, make_client
+    from gateway_bench.config import System
+
+    seen = []
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            seen.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            data = json.dumps({"model": "m", "choices": [{"message": {"content": "OK"}}], "usage": {}}).encode()
+            self.send_response(200); self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 9431), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    s = System(name="x", kind="gateway", base_url="http://127.0.0.1:9431/v1", api_key_env="NONE")
+
+    async def go(t):
+        async with make_client() as c:
+            return await chat(c, s, "m", [{"role": "user", "content": "hi"}], stream=False, temperature=t)
+    asyncio.run(go(None)); asyncio.run(go(0.0))
+    srv.shutdown()
+    assert "temperature" not in seen[0] and seen[1]["temperature"] == 0.0
