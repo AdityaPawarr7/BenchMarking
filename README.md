@@ -18,9 +18,11 @@ Everything ends in a composite **scorecard** with pre-registered weights and a s
 
 ## Quick start
 
+Needs Python 3.9+ (the macOS built-in `python3` works). Keep the virtualenv outside iCloud folders:
+
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e '.[dev]'
+python3 -m venv ~/.venvs/gbench && source ~/.venvs/gbench/bin/activate
+pip install -e '.[dev,ui]'
 
 # 1. Prove the pipeline works with local mock gateways (no keys, no cost, ~1 min)
 python scripts/dryrun.py          # -> reports/dryrun/REPORT.md + charts

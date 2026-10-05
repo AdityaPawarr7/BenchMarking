@@ -140,7 +140,7 @@ def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "conc
 
             def cpc(frame):
                 c = frame.cost_usd.sum(min_count=1)
-                n = int(frame.correct.fillna(False).astype(bool).sum())
+                n = int((frame.correct == True).sum())  # noqa: E712
                 return float(c / n * 1000) if n and c == c else None
 
             def cpk(frame):
