@@ -61,6 +61,8 @@ async def run_track_b(
     prices_path: str | Path = "configs/prices.yaml",
     seed: int = 0,
     log=print,
+    progress=None,
+    out_path: str | Path | None = None,
 ) -> Path:
     cfg = load_yaml(cfg_path)
     configs = build_configs(systems, cfg, only, log)
@@ -90,7 +92,7 @@ async def run_track_b(
     jobs = [(wl, it, c) for wl, items in items_by_wl.items() for it in items for c in configs]
     random.Random(seed).shuffle(jobs)
 
-    out = Path(out_dir) / f"track_b_{time.strftime('%Y%m%d_%H%M%S')}.jsonl"
+    out = Path(out_path) if out_path else Path(out_dir) / f"track_b_{time.strftime('%Y%m%d_%H%M%S')}.jsonl"
     writer = ResultWriter(out, {"track": "B"})
     sem = asyncio.Semaphore(int(cfg.get("concurrency", 16)))
     max_tokens = int(cfg.get("max_tokens", 1024))
@@ -130,6 +132,8 @@ async def run_track_b(
                         "text": r.text[:4000]})
             writer.write(rec)
             done += 1
+            if progress:
+                progress(done, len(jobs))
             if done % 50 == 0 or done == len(jobs):
                 log(f"  track B: {done}/{len(jobs)}")
 

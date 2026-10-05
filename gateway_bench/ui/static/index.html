@@ -1,0 +1,988 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gateway Benchmark</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f6f4;
+  --surface: #fcfcfb;
+  --surface-2: #f0efec;
+  --border: #e2e1dc;
+  --border-strong: #cfcdc6;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --text-3: #75736e;
+  --grid: #e9e8e4;
+  --axis: #a9a7a0;
+  --ref: #2a78d6;          /* Concentrate: categorical slot 1 */
+  --ref-soft: #2a78d61f;
+  --rival: #eb6834;        /* OpenRouter: categorical slot 2 */
+  --rival-soft: #eb68341f;
+  --base: #8d8b85;         /* direct-provider baseline: neutral */
+  --good: #1a7f37;
+  --warn: #9a6700;
+  --bad: #c62828;
+  --accent-ink: #1c5cab;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 1px 1px rgba(0,0,0,.03);
+  --radius: 10px;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #2e2e2b; --border-strong: #3d3d39;
+    --text: #ffffff; --text-2: #c3c2b7; --text-3: #9a998f; --grid: #2a2a27; --axis: #5c5b55;
+    --ref: #3987e5; --ref-soft: #3987e526; --rival: #d95926; --rival-soft: #d9592626; --base: #8f8d86;
+    --good: #3fb950; --warn: #d29922; --bad: #f85149; --accent-ink: #86b6ef;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #2e2e2b; --border-strong: #3d3d39;
+  --text: #ffffff; --text-2: #c3c2b7; --text-3: #9a998f; --grid: #2a2a27; --axis: #5c5b55;
+  --ref: #3987e5; --ref-soft: #3987e526; --rival: #d95926; --rival-soft: #d9592626; --base: #8f8d86;
+  --good: #3fb950; --warn: #d29922; --bad: #f85149; --accent-ink: #86b6ef;
+  --shadow: none;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select { font: inherit; color: inherit; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---------- top bar */
+.topbar {
+  display: flex; align-items: center; gap: 16px; padding: 14px 24px;
+  border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 20;
+}
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+.brand .sub { color: var(--text-3); font-size: 13px; }
+.vs { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+.dot.ref { background: var(--ref); } .dot.rival { background: var(--rival); } .dot.base { background: var(--base); }
+.spacer { flex: 1; }
+.iconbtn { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 5px 10px; cursor: pointer; color: var(--text-2); font-size: 13px; }
+.iconbtn:hover { border-color: var(--border-strong); color: var(--text); }
+
+/* ---------- layout */
+.layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; padding: 20px 24px 48px; max-width: 1480px; margin: 0 auto; }
+@media (max-width: 960px) { .layout { grid-template-columns: 1fr; padding: 16px; } }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.card-h { display: flex; align-items: center; gap: 8px; padding: 14px 16px 0; }
+.card-h h2, .card-h h3 { font-size: 14px; margin: 0; font-weight: 650; }
+.card-b { padding: 12px 16px 16px; }
+.muted { color: var(--text-3); }
+.small { font-size: 12.5px; }
+.sidebar { display: flex; flex-direction: column; gap: 16px; }
+.main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+/* ---------- form */
+.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--surface-2); border-radius: 8px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; padding: 6px 8px; border-radius: 6px; cursor: pointer; color: var(--text-2); font-weight: 550; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--border); }
+.field { margin-top: 12px; }
+.field > label, .lbl { display: block; font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .03em; }
+.syslist { display: flex; flex-direction: column; gap: 6px; }
+.sysrow { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; }
+.sysrow .name { font-weight: 600; }
+.sysrow .meta { color: var(--text-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.badge { font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.badge.ok { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.badge.no { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.badge.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.badge.neutral { color: var(--text-2); background: var(--surface-2); }
+.test { border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; }
+.test > .test-h { display: flex; align-items: flex-start; gap: 10px; padding: 10px; cursor: pointer; }
+.test > .test-h input { margin-top: 3px; accent-color: var(--ref); }
+.test .t-name { font-weight: 600; }
+.test .t-desc { color: var(--text-3); font-size: 12.5px; }
+.test .test-b { padding: 0 10px 10px 34px; display: grid; gap: 10px; }
+.test[data-off="true"] .test-b { display: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; cursor: pointer; background: var(--surface); user-select: none; }
+.chip[aria-pressed="true"] { border-color: var(--ref); color: var(--accent-ink); background: var(--ref-soft); }
+.chip[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.inline { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.inline input[type=number], .inline input[type=text] { width: 84px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.inline input[type=text].wide { width: 130px; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
+.check input { accent-color: var(--ref); }
+.estimate { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); font-size: 13px; display: flex; justify-content: space-between; gap: 8px; }
+.btn { width: 100%; margin-top: 12px; border: 0; border-radius: 8px; padding: 10px 14px; font-weight: 650; cursor: pointer; background: var(--text); color: var(--surface); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.secondary { background: transparent; color: var(--text); border: 1px solid var(--border-strong); width: auto; margin: 0; padding: 6px 12px; font-weight: 600; }
+.formmsg { margin-top: 10px; font-size: 12.5px; color: var(--bad); }
+.formmsg:empty { display: none; }
+.note { font-size: 12.5px; color: var(--text-2); background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
+
+/* ---------- history */
+.history { list-style: none; margin: 0; padding: 4px 6px 8px; max-height: 360px; overflow: auto; }
+.history li button { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; width: 100%; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.history li button:hover { background: var(--surface-2); }
+.history li button[aria-current="true"] { background: var(--ref-soft); }
+.history .h-title { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history .h-sub { grid-column: 1 / -1; color: var(--text-3); font-size: 12px; }
+
+/* ---------- status */
+.pill { font-size: 12px; font-weight: 650; border-radius: 999px; padding: 2px 9px; text-transform: capitalize; }
+.pill.running, .pill.queued { color: var(--accent-ink); background: var(--ref-soft); }
+.pill.done { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.pill.failed, .pill.interrupted { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.pill.cancelled { color: var(--text-2); background: var(--surface-2); }
+.runhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; }
+.runhead h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+.demo-banner { margin: 0 16px 14px; padding: 9px 12px; border-radius: 8px; font-size: 13px; background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--text); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
+.errbox { margin: 0 16px 14px; padding: 9px 12px; border-radius: 8px; font-size: 13px; background: color-mix(in srgb, var(--bad) 10%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
+.phases { display: grid; gap: 10px; }
+.phase { display: grid; grid-template-columns: 190px 1fr 92px; align-items: center; gap: 12px; font-size: 13px; }
+@media (max-width: 640px) { .phase { grid-template-columns: 1fr; gap: 4px; } }
+.bar { height: 8px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--ref); border-radius: 99px; transition: width .4s ease; }
+.phase[data-status="done"] .bar > span { background: var(--good); }
+.phase[data-status="failed"] .bar > span, .phase[data-status="cancelled"] .bar > span { background: var(--base); }
+details.log { margin-top: 12px; }
+details.log summary { cursor: pointer; color: var(--text-2); font-size: 12.5px; }
+details.log pre { font: 12px/1.5 var(--mono); background: var(--surface-2); padding: 10px 12px; border-radius: 8px; max-height: 220px; overflow: auto; margin: 8px 0 0; white-space: pre-wrap; }
+
+/* ---------- verdict + metric cards */
+.verdict { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: center; padding: 16px; }
+@media (max-width: 640px) { .verdict { grid-template-columns: 1fr; } }
+.tally { display: flex; align-items: stretch; gap: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.tally > div { padding: 10px 18px; min-width: 128px; }
+.tally > div + div { border-left: 1px solid var(--border); }
+.tally .who { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); font-weight: 600; }
+.tally .n { font-size: 30px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; margin-top: 2px; }
+.tally .n small { font-size: 13px; font-weight: 500; color: var(--text-3); margin-left: 4px; }
+.verdict-text { font-size: 14px; color: var(--text-2); }
+.verdict-text strong { color: var(--text); }
+.metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.mcard { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px 14px 12px; display: flex; flex-direction: column; gap: 9px; box-shadow: var(--shadow); }
+.mcard .m-top { display: flex; flex-direction: column; gap: 2px; }
+.mcard .m-label { font-weight: 600; font-size: 13px; }
+.mcard .m-track { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+.mrow { display: grid; grid-template-columns: 92px 1fr auto; align-items: center; gap: 8px; font-size: 12.5px; }
+.mrow .who { display: flex; align-items: center; gap: 6px; color: var(--text-2); white-space: nowrap; }
+.mrow .val { font-weight: 600; text-align: right; min-width: 64px; }
+.mrow.win .val { color: var(--text); }
+.mrow.win .who { color: var(--text); font-weight: 600; }
+.mbar { height: 10px; background: var(--surface-2); border-radius: 0 4px 4px 0; position: relative; }
+.mbar > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0 4px 4px 0; }
+.mfoot { font-size: 12px; color: var(--text-2); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 8px; }
+.sig { font-size: 11px; font-weight: 650; border-radius: 4px; padding: 1px 6px; }
+.sig.yes { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.sig.no { color: var(--text-2); background: var(--surface-2); }
+
+/* ---------- sections */
+.section-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 16px 0; }
+.section-h h3 { margin: 0; font-size: 14px; font-weight: 650; }
+.section-h .desc { color: var(--text-3); font-size: 12.5px; flex-basis: 100%; }
+.controls { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+select { padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 13px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2); padding: 10px 16px 0; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend .swatch-line { width: 16px; height: 2px; border-radius: 2px; }
+.legend .swatch-dash { width: 16px; height: 0; border-top: 2px dashed var(--base); }
+.chart { position: relative; padding: 6px 8px 4px; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--text-3); font-size: 11px; font-family: inherit; }
+.chart .ax { stroke: var(--axis); stroke-width: 1; }
+.chart .gr { stroke: var(--grid); stroke-width: 1; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); min-width: 150px; z-index: 5; display: none; }
+.tip .t-h { font-weight: 650; margin-bottom: 4px; color: var(--text); }
+.tip .t-r { display: flex; align-items: center; gap: 6px; justify-content: space-between; color: var(--text-2); }
+.tip .t-r b { color: var(--text); font-weight: 600; }
+.two { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0; }
+@media (max-width: 1100px) { .two { grid-template-columns: 1fr; } }
+.tablewrap { overflow-x: auto; padding: 4px 16px 16px; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th { text-align: left; color: var(--text-3); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .03em; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+td.r, th.r { text-align: right; }
+tr.is-ref td:first-child { box-shadow: inset 3px 0 0 var(--ref); }
+tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
+.mix { padding: 12px 16px 16px; display: grid; gap: 12px; align-content: start; }
+.mix .mix-row .who { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; margin-bottom: 5px; }
+.stack { display: flex; height: 14px; border-radius: 4px; overflow: hidden; gap: 2px; }
+.stack > span { display: block; height: 100%; }
+.mix-legend { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+.empty { padding: 56px 24px; text-align: center; color: var(--text-2); }
+.empty h2 { color: var(--text); font-size: 18px; margin: 0 0 6px; }
+.empty p { margin: 0 auto; max-width: 460px; }
+.skeleton { color: var(--text-3); padding: 24px 16px; font-size: 13px; }
+.hidden { display: none !important; }
+:focus-visible { outline: 2px solid var(--ref); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><h1>Gateway Benchmark</h1><span class="sub">v1</span></div>
+  <div class="vs"><span class="dot ref"></span>Concentrate <span class="muted">vs</span> <span class="dot rival"></span>OpenRouter</div>
+  <div class="spacer"></div>
+  <button class="iconbtn" id="themeBtn" type="button" title="Toggle light/dark">Theme</button>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <section class="card" aria-labelledby="newrun-h">
+      <div class="card-h"><h2 id="newrun-h">New run</h2></div>
+      <div class="card-b">
+        <div class="seg" role="group" aria-label="Mode">
+          <button type="button" data-mode="demo" aria-pressed="true">Demo</button>
+          <button type="button" data-mode="live" aria-pressed="false">Live</button>
+        </div>
+        <div class="small muted" id="modeHint" style="margin-top:6px"></div>
+
+        <div class="field">
+          <span class="lbl">Systems</span>
+          <div class="syslist" id="sysList"></div>
+          <div id="sysNote"></div>
+        </div>
+
+        <div class="field">
+          <label for="runLabel">Label (optional)</label>
+          <div class="inline"><input type="text" id="runLabel" class="wide" style="width:100%" placeholder="e.g. pilot, us-east-1, morning"></div>
+        </div>
+
+        <div class="field">
+          <span class="lbl">Tests</span>
+
+          <div class="test" id="tA">
+            <label class="test-h"><input type="checkbox" id="cA" checked>
+              <span><span class="t-name">Speed &amp; fees</span><br><span class="t-desc">Same model through each gateway. Measures added delay and price markup.</span></span></label>
+            <div class="test-b">
+              <div><span class="lbl">Prompt sizes</span><div class="chips" id="shapeChips"></div></div>
+              <div><span class="lbl">Response mode</span><div class="chips" id="streamChips">
+                <span class="chip" role="button" tabindex="0" aria-pressed="true" data-stream="true">Streaming</span>
+                <span class="chip" role="button" tabindex="0" aria-pressed="true" data-stream="false">Non-streaming</span></div></div>
+              <div class="inline"><label for="reqs">Requests per size</label><input type="number" id="reqs" min="1" max="5000" value="20"></div>
+              <div class="inline"><label for="warm">Warm-up (discarded)</label><input type="number" id="warm" min="0" max="200" value="3"></div>
+              <label class="check"><input type="checkbox" id="incBase" checked> Also call the provider directly (shows added delay)</label>
+            </div>
+          </div>
+
+          <div class="test" id="tB">
+            <label class="test-h"><input type="checkbox" id="cB" checked>
+              <span><span class="t-name">Routing quality</span><br><span class="t-desc">Each router picks the model. Measures right answers per dollar.</span></span></label>
+            <div class="test-b">
+              <div><span class="lbl">Question sets</span><div class="chips" id="wlChips"></div></div>
+              <div class="inline"><label for="maxItems">Questions per set (max)</label><input type="number" id="maxItems" min="1" max="5000" value="50"></div>
+              <label class="check"><input type="checkbox" id="incModels" checked> Include single-model reference points</label>
+            </div>
+          </div>
+
+          <div class="test" id="tL" data-off="true">
+            <label class="test-h"><input type="checkbox" id="cL">
+              <span><span class="t-name">Load test</span><br><span class="t-desc">Rising traffic. Finds the most requests per second each handles within the latency target.</span></span></label>
+            <div class="test-b">
+              <div class="inline"><label for="rates">Steps (req/s)</label><input type="text" id="rates" class="wide" value="5, 20"></div>
+              <div class="inline"><label for="stepDur">Seconds per step</label><input type="number" id="stepDur" min="1" max="3600" value="10"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="estimate"><span>Estimated calls</span><b class="num" id="estimate">–</b></div>
+        <button class="btn" id="runBtn" type="button">Run benchmark</button>
+        <div class="formmsg" id="formMsg" role="alert"></div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="hist-h">
+      <div class="card-h"><h2 id="hist-h">Past runs</h2><span class="spacer"></span><button class="iconbtn" id="refreshHist" type="button">Refresh</button></div>
+      <ul class="history" id="history"><li class="skeleton">Loading…</li></ul>
+    </section>
+  </aside>
+
+  <main class="main" id="main">
+    <section class="card empty" id="emptyState">
+      <h2>No run selected</h2>
+      <p>Start a <b>Demo</b> run to see how the comparison works with mock gateways (about 30 seconds, no API keys). Switch to <b>Live</b> once your keys are in <code>.env</code>.</p>
+    </section>
+
+    <section class="card hidden" id="runCard">
+      <div class="runhead">
+        <h2 id="runTitle">Run</h2>
+        <span class="pill" id="runStatus"></span>
+        <span class="small muted num" id="runMeta"></span>
+        <span class="spacer"></span>
+        <button class="btn secondary hidden" id="cancelBtn" type="button">Cancel</button>
+      </div>
+      <div class="demo-banner hidden" id="demoBanner"><b>Demo data.</b> These numbers come from mock gateways on your machine. They show how the page works and say nothing about the real services.</div>
+      <div class="errbox hidden" id="errBox"></div>
+      <div class="card-b" style="padding-top:0">
+        <div class="phases" id="phases"></div>
+        <details class="log"><summary>Run log</summary><pre id="log"></pre></details>
+      </div>
+    </section>
+
+    <div id="results" class="hidden" style="display:flex;flex-direction:column;gap:16px">
+      <section class="card" id="verdictCard">
+        <div class="verdict">
+          <div class="tally" id="tally"></div>
+          <div class="verdict-text" id="verdictText"></div>
+        </div>
+      </section>
+
+      <div class="metrics" id="metrics"></div>
+
+      <section class="card hidden" id="latencySec">
+        <div class="section-h">
+          <h3>Time to first token</h3>
+          <div class="controls">
+            <select id="cdfShape" aria-label="Prompt size"></select>
+            <select id="cdfStream" aria-label="Response mode"></select>
+          </div>
+          <div class="desc">Share of requests that got their first token within a given time. Further left is faster; the gap at the top is the slow tail.</div>
+        </div>
+        <div class="legend" id="cdfLegend"></div>
+        <div class="chart" id="cdfChart"></div>
+        <div class="tablewrap"><table id="tableA"></table></div>
+      </section>
+
+      <section class="card hidden" id="qualitySec">
+        <div class="section-h">
+          <h3>Accuracy vs cost</h3>
+          <div class="controls"><select id="fWorkload" aria-label="Question set"></select></div>
+          <div class="desc">Up and to the left is better: more right answers for less money. Whiskers are 95% confidence intervals.</div>
+        </div>
+        <div class="legend" id="frontLegend"></div>
+        <div class="two">
+          <div class="chart" id="frontChart"></div>
+          <div class="mix" id="mix"></div>
+        </div>
+        <div class="tablewrap"><table id="tableB"></table></div>
+      </section>
+
+      <section class="card hidden" id="loadSec">
+        <div class="section-h">
+          <h3>Slowest 1% under load</h3>
+          <div class="desc">p99 time to first token at each traffic step. The dashed line is the latency target.</div>
+        </div>
+        <div class="legend" id="loadLegend"></div>
+        <div class="chart" id="loadChart"></div>
+        <div class="tablewrap"><table id="tableL"></table></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const NAMES = { concentrate: "Concentrate", openrouter: "OpenRouter" };
+const nice = s => NAMES[s] || s;
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/* ---------------- theme */
+(function () {
+  let t = null;
+  try { t = localStorage.getItem("gb-theme"); } catch (e) {}
+  if (t) document.documentElement.dataset.theme = t;
+  $("#themeBtn").addEventListener("click", () => {
+    const cur = document.documentElement.dataset.theme ||
+      (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const next = cur === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem("gb-theme", next); } catch (e) {}
+    if (state.summary) renderCharts();
+  });
+})();
+
+/* ---------------- formatting */
+function fmt(v, unit) {
+  if (v == null || Number.isNaN(v)) return "–";
+  if (unit === "ms") return Math.abs(v) >= 1000 ? (v / 1000).toFixed(2) + " s" : Math.round(v) + " ms";
+  if (unit === "%") return v.toFixed(1) + "%";
+  if (unit === "$") return usd(v);
+  if (unit === "tok/s") return Math.round(v) + " tok/s";
+  if (unit === "req/s") return (Math.round(v * 10) / 10) + " req/s";
+  return String(v);
+}
+function usd(v) {
+  if (v == null) return "–";
+  const a = Math.abs(v);
+  if (a === 0) return "$0";
+  if (a >= 100) return "$" + v.toFixed(0);
+  if (a >= 1) return "$" + v.toFixed(2);
+  return "$" + v.toPrecision(3);
+}
+const ago = ts => {
+  if (!ts) return "";
+  const s = (Date.now() / 1000) - ts;
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago";
+  return new Date(ts * 1000).toLocaleDateString();
+};
+const dur = (a, b) => {
+  if (!a) return "";
+  const s = Math.max(0, Math.round((b || Date.now() / 1000) - a));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+};
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const colorOf = s => s === "concentrate" ? css("--ref") : s === "openrouter" ? css("--rival") : css("--base");
+
+/* ---------------- state */
+const state = { config: null, mode: "demo", runId: null, run: null, summary: null, poll: null, lastPhaseDone: 0 };
+const api = async (path, opts) => {
+  const r = await fetch(path, { headers: { "content-type": "application/json" }, ...opts });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
+  return body;
+};
+
+/* ---------------- form */
+function chip(label, attrs, pressed = true, disabled = false) {
+  const el = document.createElement("span");
+  el.className = "chip"; el.tabIndex = 0; el.setAttribute("role", "button");
+  el.setAttribute("aria-pressed", String(pressed));
+  if (disabled) el.setAttribute("aria-disabled", "true");
+  Object.entries(attrs).forEach(([k, v]) => el.dataset[k] = v);
+  el.textContent = label;
+  return el;
+}
+function bindChips(root) {
+  root.addEventListener("click", e => {
+    const c = e.target.closest(".chip");
+    if (!c || c.getAttribute("aria-disabled") === "true") return;
+    c.setAttribute("aria-pressed", c.getAttribute("aria-pressed") === "true" ? "false" : "true");
+    updateEstimate();
+  });
+  root.addEventListener("keydown", e => { if ((e.key === " " || e.key === "Enter") && e.target.classList.contains("chip")) { e.preventDefault(); e.target.click(); } });
+}
+["#shapeChips", "#streamChips", "#wlChips"].forEach(s => bindChips($(s)));
+
+function renderForm() {
+  const m = state.config.modes[state.mode];
+  $$(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === state.mode)));
+  $("#modeHint").textContent = state.mode === "demo"
+    ? "Mock gateways on your machine. Free, about 30 s. For trying the page."
+    : "Real API calls using the keys in .env. This costs money.";
+
+  const sl = $("#sysList"); sl.innerHTML = "";
+  const notes = [];
+  m.systems.forEach((s, i) => {
+    const role = i === 0 ? "ref" : i === 1 ? "rival" : "base";
+    const ok = s.configured && s.available;
+    const row = document.createElement("div"); row.className = "sysrow";
+    const label = i === 2 ? `${s.name} (baseline)` : nice(s.name);
+    row.innerHTML = `<span class="dot ${role}"></span><span class="name">${esc(label)}</span>
+      <span class="meta" title="${esc(s.base_url || "")}">${esc(s.model || "")}</span>
+      <span class="badge ${ok ? "ok" : (i === 2 ? "warn" : "no")}">${state.mode === "demo" ? "mock" : ok ? "key set" : "no key"}</span>`;
+    sl.appendChild(row);
+    if (state.mode === "live") {
+      if (!s.configured) notes.push(`${esc(s.name)} isn't in configs/systems.yaml.`);
+      else if (!s.available) notes.push(`Add <code>${esc(s.key_env)}</code> to .env and restart <code>gbench ui</code>${i === 2 ? " (optional: only needed for the added-delay number)" : ""}.`);
+      if (s.todo) notes.push(`${esc(nice(s.name))}'s URL or routing flag is still marked TODO in configs/systems.yaml.`);
+    }
+  });
+  $("#sysNote").innerHTML = notes.length ? `<div class="note">${notes.join("<br>")}</div>` : "";
+
+  const sc = $("#shapeChips"); sc.innerHTML = "";
+  m.shapes.forEach((s, i) => sc.appendChild(chip(`${s.name} · ${s.input_tokens.toLocaleString()}→${s.output_tokens.toLocaleString()} tok`,
+    { shape: s.name, inp: s.input_tokens, out: s.output_tokens }, state.mode === "demo" || i < 2)));
+
+  const wc = $("#wlChips"); wc.innerHTML = "";
+  m.workloads.forEach(w => {
+    const label = w.exists ? `${w.name} · ${w.items}` : `${w.name} · not prepared`;
+    wc.appendChild(chip(label, { wl: w.name, items: w.items || 0 }, w.exists && (state.mode === "demo" || w.name === "sample"), !w.exists));
+  });
+
+  $("#reqs").value = m.defaults.requests_per_cell;
+  $("#warm").value = m.defaults.warmup;
+  $("#rates").value = (state.mode === "demo" ? m.load.rates : [1, 5, 10]).join(", ");
+  $("#stepDur").value = state.mode === "demo" ? m.load.step_duration_s : 30;
+  updateEstimate();
+}
+
+function readForm() {
+  const pressed = sel => $$(sel + " .chip[aria-pressed='true']");
+  return {
+    mode: state.mode,
+    label: $("#runLabel").value.trim(),
+    track_a: $("#cA").checked, track_b: $("#cB").checked, load: $("#cL").checked,
+    include_baseline: $("#incBase").checked,
+    shapes: pressed("#shapeChips").map(c => c.dataset.shape),
+    stream_modes: pressed("#streamChips").map(c => c.dataset.stream === "true"),
+    requests_per_cell: +$("#reqs").value || 1,
+    warmup: +$("#warm").value || 0,
+    workloads: pressed("#wlChips").map(c => c.dataset.wl),
+    max_items: +$("#maxItems").value || 1,
+    include_model_baselines: $("#incModels").checked,
+    rates: $("#rates").value.split(/[,\s]+/).map(Number).filter(x => x > 0),
+    step_duration_s: +$("#stepDur").value || 1,
+  };
+}
+
+function problems(o) {
+  const m = state.config.modes[state.mode];
+  const out = [];
+  if (!o.track_a && !o.track_b && !o.load) out.push("Pick at least one test.");
+  if (o.track_a && (!o.shapes.length || !o.stream_modes.length)) out.push("Speed & fees needs a prompt size and a response mode.");
+  if (o.track_b && !o.workloads.length) out.push("Routing quality needs a question set (prepare more with gbench prepare-data).");
+  if (o.load && !o.rates.length) out.push("Load test needs at least one step.");
+  if (state.mode === "live") {
+    m.systems.slice(0, 2).forEach(s => { if (!s.available) out.push(`${nice(s.name)} has no API key.`); });
+  }
+  return out;
+}
+
+function updateEstimate() {
+  if (!state.config) return;
+  const o = readForm();
+  const m = state.config.modes[state.mode];
+  let n = 0;
+  if (o.track_a) {
+    const sys = 2 + (o.include_baseline && m.systems[2].available ? 1 : 0);
+    n += sys * (o.shapes.length * o.stream_modes.length * o.requests_per_cell + o.warmup);
+  }
+  if (o.track_b) {
+    const items = $$("#wlChips .chip[aria-pressed='true']").reduce((a, c) => a + Math.min(+c.dataset.items, o.max_items), 0);
+    const cfgs = 2 + (o.include_model_baselines ? m.model_baselines.length : 0);
+    n += items * cfgs;
+  }
+  if (o.load) n += 2 * o.rates.reduce((a, r) => a + r * o.step_duration_s, 0);
+  $("#estimate").textContent = "≈ " + Math.round(n).toLocaleString();
+  const p = problems(o);
+  $("#runBtn").disabled = p.length > 0 || isActive();
+  $("#formMsg").textContent = isActive() ? "A run is in progress." : p[0] || "";
+}
+
+$$(".seg button").forEach(b => b.addEventListener("click", () => { state.mode = b.dataset.mode; renderForm(); }));
+[["#cA", "#tA"], ["#cB", "#tB"], ["#cL", "#tL"]].forEach(([c, t]) =>
+  $(c).addEventListener("change", () => { $(t).dataset.off = String(!$(c).checked); updateEstimate(); }));
+$$("#reqs, #warm, #maxItems, #rates, #stepDur, #incBase, #incModels").forEach(el => el.addEventListener("input", updateEstimate));
+
+$("#runBtn").addEventListener("click", async () => {
+  const o = readForm();
+  $("#runBtn").disabled = true;
+  try {
+    const st = await api("/api/runs", { method: "POST", body: JSON.stringify(o) });
+    await loadHistory();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    selectRun(st.id);
+  } catch (e) {
+    $("#formMsg").textContent = e.message;
+    $("#runBtn").disabled = false;
+  }
+});
+
+/* ---------------- history */
+const isActive = () => state.run && ["queued", "running"].includes(state.run.status);
+function runTitle(r) {
+  const o = r.options || {};
+  const tests = [o.track_a && "speed", o.track_b && "quality", o.load && "load"].filter(Boolean).join(" + ");
+  return o.label || tests || r.id;
+}
+async function loadHistory() {
+  const runs = await api("/api/runs");
+  const ul = $("#history");
+  if (!runs.length) { ul.innerHTML = `<li class="skeleton">No runs yet.</li>`; return; }
+  ul.innerHTML = "";
+  runs.forEach(r => {
+    const li = document.createElement("li");
+    const o = r.options || {};
+    li.innerHTML = `<button type="button" aria-current="${r.id === state.runId}">
+      <span class="h-title">${esc(runTitle(r))}</span><span class="pill ${esc(r.status)}">${esc(r.status)}</span>
+      <span class="h-sub">${o.mode === "demo" ? "Demo · " : "Live · "}${esc(ago(r.created))} · ${esc(r.id)}</span></button>`;
+    li.firstChild.addEventListener("click", () => selectRun(r.id));
+    ul.appendChild(li);
+  });
+}
+$("#refreshHist").addEventListener("click", loadHistory);
+
+/* ---------------- run view */
+async function selectRun(id) {
+  state.runId = id; state.summary = null; state.lastPhaseDone = -1;
+  try { history.replaceState(null, "", "#run=" + id); } catch (e) {}
+  $$("#history button").forEach(b => b.setAttribute("aria-current", String(b.querySelector(".h-sub").textContent.includes(id))));
+  $("#emptyState").classList.add("hidden");
+  $("#runCard").classList.remove("hidden");
+  $("#results").classList.add("hidden");
+  clearInterval(state.poll);
+  await refreshRun();
+  state.poll = setInterval(refreshRun, 1200);
+}
+
+async function refreshRun() {
+  if (!state.runId) return;
+  let r;
+  try { r = await api(`/api/runs/${state.runId}`); } catch (e) { return; }
+  const wasActive = isActive();
+  state.run = r;
+  renderRun();
+  const doneCount = Object.values(r.phases || {}).filter(p => p.status === "done").length;
+  const finished = !["queued", "running"].includes(r.status);
+  if (doneCount !== state.lastPhaseDone || (finished && wasActive)) {
+    state.lastPhaseDone = doneCount;
+    if (doneCount > 0 || finished) loadResults();
+  }
+  if (finished) { clearInterval(state.poll); if (wasActive) loadHistory(); }
+  updateEstimate();
+}
+
+function renderRun() {
+  const r = state.run, o = r.options || {};
+  $("#runTitle").textContent = runTitle(r);
+  const st = $("#runStatus"); st.className = "pill " + r.status; st.textContent = r.status;
+  $("#runMeta").textContent = `${r.id} · ${o.mode === "demo" ? "demo" : "live"}${r.started ? " · " + dur(r.started, r.finished) : ""}`;
+  $("#demoBanner").classList.toggle("hidden", o.mode !== "demo");
+  $("#cancelBtn").classList.toggle("hidden", !["queued", "running"].includes(r.status));
+  $("#errBox").classList.toggle("hidden", !r.error);
+  $("#errBox").textContent = r.error ? "Run failed: " + r.error : "";
+  const ph = $("#phases"); ph.innerHTML = "";
+  const entries = Object.entries(r.phases || {});
+  if (!entries.length) ph.innerHTML = `<div class="small muted">${r.status === "queued" ? "Starting…" : "No tests ran."}</div>`;
+  entries.forEach(([name, p]) => {
+    const pct = p.total ? Math.min(100, p.done / p.total * 100) : (p.status === "done" ? 100 : 0);
+    const div = document.createElement("div"); div.className = "phase"; div.dataset.status = p.status;
+    div.innerHTML = `<span>${esc(name)}</span><div class="bar" role="progressbar" aria-valuenow="${Math.round(pct)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pct}%"></span></div>
+      <span class="small muted num" style="text-align:right">${p.status === "done" ? "done" : p.total ? `${p.done.toLocaleString()} / ${p.total.toLocaleString()}` : p.status}</span>`;
+    ph.appendChild(div);
+  });
+  const log = $("#log"); const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
+  log.textContent = (r.logs || []).join("\n");
+  if (atBottom) log.scrollTop = log.scrollHeight;
+}
+$("#cancelBtn").addEventListener("click", async () => { try { await api(`/api/runs/${state.runId}/cancel`, { method: "POST" }); } catch (e) {} refreshRun(); });
+
+/* ---------------- results */
+async function loadResults() {
+  let s;
+  try { s = await api(`/api/runs/${state.runId}/results`); } catch (e) { return; }
+  state.summary = s;
+  if (s.empty) { $("#results").classList.add("hidden"); return; }
+  $("#results").classList.remove("hidden");
+  renderVerdict(); renderMetrics(); setupSelectors(); renderCharts(); renderTables();
+}
+
+function renderVerdict() {
+  const s = state.summary, sc = s.score, R = s.ref, V = s.rival;
+  const decided = sc[R] + sc[V];
+  $("#tally").innerHTML = [R, V].map(k => `<div><div class="who"><span class="dot ${k === R ? "ref" : "rival"}"></span>${nice(k)}</div>
+    <div class="n num">${sc[k]}<small>of ${sc.total} leads</small></div></div>`).join("");
+  const sigR = sc["significant_" + R], sigV = sc["significant_" + V];
+  let lead;
+  if (sc[R] > sc[V]) lead = `<strong>${nice(R)} leads on ${sc[R]} of ${sc.total} metrics.</strong>`;
+  else if (sc[V] > sc[R]) lead = `<strong>${nice(V)} leads on ${sc[V]} of ${sc.total} metrics.</strong>`;
+  else lead = `<strong>Even: ${sc[R]} leads each.</strong>`;
+  const ties = sc.total - decided;
+  $("#verdictText").innerHTML = `${lead} ${ties ? `${ties} tied or not measured. ` : ""}
+    Gaps confirmed by a statistical test: ${nice(R)} ${sigR}, ${nice(V)} ${sigV}. Costs are counted directly, so they need no test.
+    ${s.mode === "demo" ? "<br><span class='muted'>Demo data, not real results.</span>" : ""}`;
+}
+
+const TRACK = { A: "Speed & fees", B: "Routing quality", load: "Load" };
+function renderMetrics() {
+  const s = state.summary, R = s.ref, V = s.rival, wrap = $("#metrics");
+  wrap.innerHTML = "";
+  s.metrics.forEach(m => {
+    const a = m.values[R], b = m.values[V];
+    const vals = [a, b].filter(x => x != null);
+    const max = Math.max(...vals.map(Math.abs), 1e-12);
+    const row = (k, v) => {
+      const w = v == null ? 0 : Math.max(2, Math.abs(v) / max * 100);
+      return `<div class="mrow ${m.winner === k ? "win" : ""}"><span class="who"><span class="dot ${k === R ? "ref" : "rival"}"></span>${nice(k)}</span>
+        <div class="mbar"><span style="width:${w}%;background:${k === R ? "var(--ref)" : "var(--rival)"}"></span></div>
+        <span class="val num">${fmt(v, m.unit)}</span></div>`;
+    };
+    let foot = "";
+    if (m.winner === "tie") foot = "Tied";
+    else if (m.winner) {
+      const better = m.better === "lower" ? (m.unit === "$" ? "cheaper" : m.key.startsWith("overhead") || m.unit === "ms" ? "faster" : "lower") : "higher";
+      const d = m.delta_pct == null ? "" : Math.abs(m.delta_pct).toFixed(Math.abs(m.delta_pct) < 10 ? 1 : 0) + "% ";
+      foot = `<b>${nice(m.winner)}</b> ${d}${better}`;
+      if (m.key === "overhead_p50" || m.key === "accuracy" || m.key === "success_a") {
+        const diff = Math.abs(a - b);
+        foot = `<b>${nice(m.winner)}</b> by ${fmt(diff, m.unit === "%" ? "%" : m.unit).replace("%", m.unit === "%" ? " pts" : "")}`;
+      }
+    } else foot = "Not enough data";
+    let sig = "";
+    if (m.significant === true) sig = `<span class="sig yes" title="95% interval excludes no difference">confirmed</span>`;
+    else if (m.significant === false) sig = `<span class="sig no" title="Could be noise. Run more requests to settle it.">not yet conclusive</span>`;
+    const note = m.note ? `<span class="muted" title="${esc(m.note)}">· ${esc(m.note)}</span>` : "";
+    const card = document.createElement("div"); card.className = "mcard";
+    card.innerHTML = `<div class="m-top"><span class="m-label">${esc(m.label)}</span><span class="m-track">${TRACK[m.track] || ""} · ${m.better} is better</span></div>
+      ${row(R, a)}${row(V, b)}<div class="mfoot">${foot} ${sig} ${note}</div>`;
+    wrap.appendChild(card);
+  });
+}
+
+function setupSelectors() {
+  const s = state.summary;
+  const cs = $("#cdfShape"), cm = $("#cdfStream");
+  if (s.cdf) {
+    const keys = Object.keys(s.cdf);
+    const shapes = [...new Set(keys.map(k => k.split("|")[0]))];
+    const order = (state.config.modes[s.mode]?.shapes || []).map(x => x.name);
+    shapes.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    const keep = cs.value;
+    cs.innerHTML = shapes.map(x => `<option>${esc(x)}</option>`).join("");
+    if (shapes.includes(keep)) cs.value = keep;
+    const modes = [...new Set(keys.map(k => k.split("|")[1]))];
+    const keepM = cm.value;
+    cm.innerHTML = modes.map(x => `<option value="${x}">${x === "stream" ? "Streaming" : "Non-streaming"}</option>`).join("");
+    if (modes.includes(keepM)) cm.value = keepM;
+  }
+  if (s.frontier) {
+    const wls = [...new Set(s.frontier.map(f => f.workload))];
+    const keep = $("#fWorkload").value;
+    $("#fWorkload").innerHTML = wls.map(x => `<option>${esc(x)}</option>`).join("");
+    if (wls.includes(keep)) $("#fWorkload").value = keep;
+  }
+}
+["#cdfShape", "#cdfStream", "#fWorkload"].forEach(s => $(s).addEventListener("change", () => { renderCharts(); renderTables(); }));
+
+/* ---------------- charts (hand-rolled SVG) */
+const W = 760;
+function scale(d0, d1, r0, r1) { const k = (r1 - r0) / ((d1 - d0) || 1); return v => r0 + (v - d0) * k; }
+function ticks(lo, hi, n = 5) {
+  const span = hi - lo || 1, step0 = span / n, mag = 10 ** Math.floor(Math.log10(step0));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => span / s <= n) || mag * 10;
+  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10));
+  return out;
+}
+function legend(el, items) {
+  el.innerHTML = items.map(i => i.dash
+    ? `<span><span class="swatch-dash"></span>${esc(i.label)}</span>`
+    : i.square ? `<span><svg width="10" height="10"><rect width="10" height="10" rx="2" fill="${i.color}"/></svg>${esc(i.label)}</span>`
+      : `<span><span class="swatch-line" style="background:${i.color}"></span>${esc(i.label)}</span>`).join("");
+}
+function tipAt(chartEl, html, x, y) {
+  let t = chartEl.querySelector(".tip");
+  if (!t) { t = document.createElement("div"); t.className = "tip"; chartEl.appendChild(t); }
+  if (html == null) { t.style.display = "none"; return; }
+  t.innerHTML = html; t.style.display = "block";
+  const w = chartEl.clientWidth, tw = t.offsetWidth;
+  t.style.left = Math.min(Math.max(4, x + 14), w - tw - 4) + "px";
+  t.style.top = Math.max(0, y - 10) + "px";
+}
+
+function renderCharts() {
+  const s = state.summary; if (!s || s.empty) return;
+  $("#latencySec").classList.toggle("hidden", !s.cdf);
+  $("#qualitySec").classList.toggle("hidden", !s.frontier);
+  $("#loadSec").classList.toggle("hidden", !s.load);
+  if (s.cdf) drawCdf();
+  if (s.frontier) { drawFrontier(); drawMix(); }
+  if (s.load) drawLoad();
+}
+
+function drawCdf() {
+  const s = state.summary, key = `${$("#cdfShape").value}|${$("#cdfStream").value}`;
+  const series = s.cdf[key] || {};
+  const order = Object.keys(series).sort((a, b) => (a === s.ref ? -1 : a === s.rival ? 0 : 1) - (b === s.ref ? -1 : b === s.rival ? 0 : 1));
+  legend($("#cdfLegend"), order.map(n => n === s.ref || n === s.rival ? { label: nice(n), color: colorOf(n) } : { label: `${n} (direct, no gateway)`, dash: true }));
+  const H = 300, m = { l: 48, r: 16, t: 12, b: 36 };
+  const all = order.flatMap(n => series[n].map(p => p[0]));
+  if (!all.length) { $("#cdfChart").innerHTML = `<div class="skeleton">No successful requests in this cell.</div>`; return; }
+  const lo = Math.max(1, Math.min(...all) * 0.9), hi = Math.max(...all) * 1.05;
+  const lx = v => Math.log10(Math.max(v, lo));
+  const X = scale(lx(lo), lx(hi), m.l, W - m.r), Y = scale(0, 1, H - m.b, m.t);
+  const xt = [1, 2, 5].flatMap(k => [1, 10, 100, 1000, 10000, 100000].map(p => k * p)).filter(v => v >= lo && v <= hi).sort((a, b) => a - b);
+  const xTicks = xt.length > 8 ? xt.filter((_, i) => i % 2 === 0) : xt;
+  let g = "";
+  [0, .25, .5, .75, 1].forEach(v => g += `<line class="gr" x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${m.l - 8}" y="${Y(v) + 4}" text-anchor="end">${v * 100}%</text>`);
+  xTicks.forEach(v => g += `<line class="gr" x1="${X(lx(v))}" x2="${X(lx(v))}" y1="${m.t}" y2="${H - m.b}"/><text x="${X(lx(v))}" y="${H - m.b + 16}" text-anchor="middle">${v >= 1000 ? v / 1000 + " s" : v + " ms"}</text>`);
+  g += `<line class="ax" x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}"/>`;
+  g += `<text x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">time to first token (log scale)</text>`;
+  order.forEach(n => {
+    const pts = series[n];
+    const d = pts.map((p, i) => `${i ? "L" : "M"}${X(lx(p[0])).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("");
+    const isB = n !== s.ref && n !== s.rival;
+    g += `<path d="${d}" fill="none" stroke="${colorOf(n)}" stroke-width="${isB ? 1.5 : 2}" ${isB ? 'stroke-dasharray="5 4"' : ""} stroke-linejoin="round"/>`;
+  });
+  g += `<line id="cdfCross" class="ax hidden" y1="${m.t}" y2="${H - m.b}" stroke-dasharray="2 3"/>`;
+  g += `<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent" id="cdfHit"/>`;
+  const el = $("#cdfChart");
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Time to first token distribution">${g}</svg>`;
+  const svg = el.querySelector("svg"), cross = el.querySelector("#cdfCross");
+  const pctAt = (pts, frac) => { const i = pts.findIndex(p => p[1] >= frac); return i < 0 ? pts[pts.length - 1][0] : pts[i][0]; };
+  el.querySelector("#cdfHit").addEventListener("mousemove", e => {
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+    const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    const frac = Math.min(1, Math.max(0, (H - m.b - p.y) / (H - m.b - m.t)));
+    const q = Math.round(frac * 100);
+    cross.classList.remove("hidden"); cross.setAttribute("x1", m.l); cross.setAttribute("x2", W - m.r);
+    cross.setAttribute("y1", Y(frac)); cross.setAttribute("y2", Y(frac));
+    const rows = order.map(n => `<div class="t-r"><span><span class="dot" style="background:${colorOf(n)}"></span> ${esc(nice(n))}</span><b class="num">${fmt(pctAt(series[n], frac), "ms")}</b></div>`).join("");
+    const r = el.getBoundingClientRect();
+    tipAt(el, `<div class="t-h">${q}% of requests within</div>${rows}`, e.clientX - r.left, e.clientY - r.top);
+  });
+  el.querySelector("#cdfHit").addEventListener("mouseleave", () => { cross.classList.add("hidden"); tipAt(el, null); });
+}
+
+function drawFrontier() {
+  const s = state.summary, wl = $("#fWorkload").value;
+  const pts = s.frontier.filter(f => f.workload === wl && f.cost_per_1k_usd != null && f.accuracy != null);
+  legend($("#frontLegend"), [{ label: nice(s.ref), color: colorOf(s.ref), square: true }, { label: nice(s.rival), color: colorOf(s.rival), square: true },
+    { label: "Single model, every question", color: colorOf("x"), square: true }, { label: "Best trade-offs (Pareto)", dash: true }]);
+  const W = 520, H = 340, m = { l: 52, r: 20, t: 16, b: 40 };
+  if (!pts.length) { $("#frontChart").innerHTML = `<div class="skeleton">No cost data for this set.</div>`; return; }
+  const xs = pts.map(p => p.cost_per_1k_usd), ys = pts.flatMap(p => [p.acc_lo ?? p.accuracy, p.acc_hi ?? p.accuracy]);
+  const x0 = 0, x1 = Math.max(...xs) * 1.12 || 1;
+  const y0 = Math.max(0, Math.floor((Math.min(...ys) - .05) * 10) / 10), y1 = Math.min(1, Math.ceil((Math.max(...ys) + .02) * 20) / 20);
+  const X = scale(x0, x1, m.l, W - m.r), Y = scale(y0, y1, H - m.b, m.t);
+  let g = "";
+  ticks(y0, y1, 5).forEach(v => g += `<line class="gr" x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${m.l - 8}" y="${Y(v) + 4}" text-anchor="end">${Math.round(v * 100)}%</text>`);
+  ticks(x0, x1, 5).forEach(v => g += `<text x="${X(v)}" y="${H - m.b + 16}" text-anchor="middle">${usd(v)}</text>`);
+  g += `<line class="ax" x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}"/>`;
+  g += `<text x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">cost per 1,000 requests</text>`;
+  g += `<text x="14" y="${(m.t + H - m.b) / 2}" text-anchor="middle" transform="rotate(-90 14 ${(m.t + H - m.b) / 2})">accuracy</text>`;
+  const par = pts.filter(p => p.pareto).sort((a, b) => a.cost_per_1k_usd - b.cost_per_1k_usd);
+  if (par.length > 1) g += `<path d="${par.map((p, i) => `${i ? "L" : "M"}${X(p.cost_per_1k_usd)},${Y(p.accuracy)}`).join("")}" fill="none" stroke="var(--base)" stroke-width="1.25" stroke-dasharray="5 4"/>`;
+  const ordered = [...pts].sort((a, b) => (a.role === "router") - (b.role === "router"));
+  ordered.forEach((p, i) => {
+    const c = colorOf(p.label), cx = X(p.cost_per_1k_usd), cy = Y(p.accuracy), router = p.role === "router";
+    if (p.acc_lo != null && p.acc_hi != null) g += `<line x1="${cx}" x2="${cx}" y1="${Y(p.acc_lo)}" y2="${Y(p.acc_hi)}" stroke="${c}" stroke-width="1.5" opacity=".55"/>`;
+    g += router ? `<circle cx="${cx}" cy="${cy}" r="6.5" fill="${c}" stroke="var(--surface)" stroke-width="2"/>`
+      : `<rect x="${cx - 5}" y="${cy - 5}" width="10" height="10" rx="2" fill="${c}" stroke="var(--surface)" stroke-width="2"/>`;
+    const lab = router ? nice(p.label) : p.label.replace("direct-", "");
+    const anchor = cx > W - 140 ? "end" : "start", dx = anchor === "end" ? -10 : 10;
+    g += `<text x="${cx + dx}" y="${cy - 8}" text-anchor="${anchor}" style="fill:var(--text-2);font-weight:${router ? 600 : 400}">${esc(lab)}</text>`;
+    g += `<circle cx="${cx}" cy="${cy}" r="14" fill="transparent" data-i="${i}" class="hit"/>`;
+  });
+  const el = $("#frontChart");
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Accuracy versus cost">${g}</svg>`;
+  el.querySelectorAll(".hit").forEach(h => {
+    h.addEventListener("mousemove", e => {
+      const p = ordered[+h.dataset.i], r = el.getBoundingClientRect();
+      tipAt(el, `<div class="t-h">${esc(p.role === "router" ? nice(p.label) : p.label)}</div>
+        <div class="t-r">Accuracy <b class="num">${(p.accuracy * 100).toFixed(1)}%</b></div>
+        <div class="t-r">95% range <b class="num">${p.acc_lo != null ? (p.acc_lo * 100).toFixed(0) + "–" + (p.acc_hi * 100).toFixed(0) + "%" : "–"}</b></div>
+        <div class="t-r">Cost / 1k req <b class="num">${usd(p.cost_per_1k_usd)}</b></div>
+        <div class="t-r">Questions <b class="num">${p.n}</b></div>`, e.clientX - r.left, e.clientY - r.top);
+    });
+    h.addEventListener("mouseleave", () => tipAt(el, null));
+  });
+}
+
+function drawMix() {
+  const s = state.summary, mix = s.model_mix || {};
+  const palette = [css("--ref"), css("--rival"), "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"];
+  const models = [...new Set(Object.values(mix).flatMap(v => v.map(x => x[0])))];
+  const colorFor = mname => models.length <= 1 ? css("--base") : (models.indexOf(mname) < 8 ? palette[models.indexOf(mname)] : css("--base"));
+  let html = `<div class="lbl" style="margin:0">Models each router chose</div>`;
+  [s.ref, s.rival].forEach(k => {
+    const rows = mix[k] || []; const total = rows.reduce((a, r) => a + r[1], 0) || 1;
+    html += `<div class="mix-row"><div class="who"><span class="dot ${k === s.ref ? "ref" : "rival"}"></span>${nice(k)}</div>
+      <div class="stack">${rows.map(r => `<span title="${esc(r[0])}: ${r[1]} (${Math.round(r[1] / total * 100)}%)" style="width:${r[1] / total * 100}%;background:${colorFor(r[0])}"></span>`).join("")}</div>
+      <div class="mix-legend">${rows.slice(0, 4).map(r => `${esc(r[0])} ${Math.round(r[1] / total * 100)}%`).join(" · ")}${rows.length > 4 ? ` · +${rows.length - 4} more` : ""}</div></div>`;
+  });
+  html += `<div class="small muted">Taken from the model name each response reports.</div>`;
+  $("#mix").innerHTML = html;
+}
+
+function drawLoad() {
+  const s = state.summary, rows = s.load;
+  const sys = [s.ref, s.rival].filter(n => rows.some(r => r.system === n));
+  legend($("#loadLegend"), [...sys.map(n => ({ label: nice(n), color: colorOf(n) })), { label: `Target: p99 under ${fmt(s.load_slo_ms, "ms")}`, dash: true }]);
+  const H = 280, m = { l: 56, r: 20, t: 14, b: 40 };
+  const rates = [...new Set(rows.map(r => r.target_rps))].sort((a, b) => a - b);
+  const yv = rows.map(r => r.ttft_p99_ms).filter(v => v != null).concat([s.load_slo_ms]);
+  const y1 = Math.max(...yv) * 1.15, X = i => rates.length === 1 ? (m.l + W - m.r) / 2 : scale(0, rates.length - 1, m.l + 30, W - m.r - 30)(i), Y = scale(0, y1, H - m.b, m.t);
+  let g = "";
+  ticks(0, y1, 5).forEach(v => g += `<line class="gr" x1="${m.l}" x2="${W - m.r}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${m.l - 8}" y="${Y(v) + 4}" text-anchor="end">${fmt(v, "ms")}</text>`);
+  rates.forEach((r, i) => g += `<text x="${X(i)}" y="${H - m.b + 16}" text-anchor="middle">${r} req/s</text>`);
+  g += `<line class="ax" x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}"/>`;
+  g += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(s.load_slo_ms)}" y2="${Y(s.load_slo_ms)}" stroke="var(--base)" stroke-width="1.25" stroke-dasharray="5 4"/>`;
+  g += `<text x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">target arrival rate</text>`;
+  const hits = [];
+  sys.forEach(n => {
+    const pts = rates.map((r, i) => { const row = rows.find(x => x.system === n && x.target_rps === r); return row && row.ttft_p99_ms != null ? [i, row] : null; }).filter(Boolean);
+    g += `<path d="${pts.map(([i, row], k) => `${k ? "L" : "M"}${X(i)},${Y(row.ttft_p99_ms)}`).join("")}" fill="none" stroke="${colorOf(n)}" stroke-width="2"/>`;
+    pts.forEach(([i, row]) => {
+      g += `<circle cx="${X(i)}" cy="${Y(row.ttft_p99_ms)}" r="4.5" fill="${row.meets_slo ? colorOf(n) : "var(--surface)"}" stroke="${colorOf(n)}" stroke-width="2"/>`;
+      hits.push(row); g += `<circle class="hit" data-i="${hits.length - 1}" cx="${X(i)}" cy="${Y(row.ttft_p99_ms)}" r="13" fill="transparent"/>`;
+    });
+  });
+  const el = $("#loadChart");
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="p99 latency under load">${g}</svg><div class="small muted" style="padding:0 8px 4px">Hollow points missed the target or had more than 1% errors.</div>`;
+  el.querySelectorAll(".hit").forEach(h => {
+    h.addEventListener("mousemove", e => {
+      const row = hits[+h.dataset.i], r = el.getBoundingClientRect();
+      tipAt(el, `<div class="t-h">${nice(row.system)} at ${row.target_rps} req/s</div>
+        <div class="t-r">p99 <b class="num">${fmt(row.ttft_p99_ms, "ms")}</b></div>
+        <div class="t-r">p50 <b class="num">${fmt(row.ttft_p50_ms, "ms")}</b></div>
+        <div class="t-r">Achieved <b class="num">${row.achieved_rps?.toFixed(1)} req/s</b></div>
+        <div class="t-r">Errors <b class="num">${(row.error_rate * 100).toFixed(1)}%</b></div>
+        <div class="t-r">Target met <b>${row.meets_slo ? "yes" : "no"}</b></div>`, e.clientX - r.left, e.clientY - r.top);
+    });
+    h.addEventListener("mouseleave", () => tipAt(el, null));
+  });
+}
+
+/* ---------------- tables */
+function table(el, cols, rows, rowClass) {
+  el.innerHTML = `<thead><tr>${cols.map(c => `<th class="${c.r ? "r" : ""}">${esc(c.h)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(r => `<tr class="${rowClass ? rowClass(r) : ""}">${cols.map(c => `<td class="${c.r ? "r num" : ""}">${c.f(r)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+}
+const rc = s => k => k === s.ref ? "is-ref" : k === s.rival ? "is-rival" : "";
+function renderTables() {
+  const s = state.summary;
+  if (s.track_a) {
+    const shape = $("#cdfShape").value, stream = $("#cdfStream").value === "stream";
+    const rows = s.track_a.filter(r => r.shape === shape && r.stream === stream);
+    table($("#tableA"), [
+      { h: "System", f: r => esc(nice(r.system)) },
+      { h: "Requests", r: 1, f: r => r.n },
+      { h: "Success", r: 1, f: r => fmt(r.success_rate * 100, "%") },
+      { h: "p50", r: 1, f: r => fmt(r.ttft_p50_ms, "ms") },
+      { h: "p90", r: 1, f: r => fmt(r.ttft_p90_ms, "ms") },
+      { h: "p99", r: 1, f: r => fmt(r.ttft_p99_ms, "ms") },
+      { h: "Added p50 (95% CI)", r: 1, f: r => r.overhead_p50_ms == null ? "baseline" : `${fmt(r.overhead_p50_ms, "ms")} <span class="muted">(${Math.round(r.overhead_p50_lo)}–${Math.round(r.overhead_p50_hi)})</span>` },
+      { h: "Output tok/s", r: 1, f: r => r.output_tps_p50 == null ? "–" : Math.round(r.output_tps_p50) },
+      { h: "$/1M tok", r: 1, f: r => usd(r.cost_per_mtok_usd) },
+      { h: "Wrong model", r: 1, f: r => r.served_model_mismatch == null ? "–" : fmt(r.served_model_mismatch * 100, "%") },
+    ], rows, r => rc(s)(r.system));
+  }
+  if (s.track_b) {
+    const wl = $("#fWorkload").value;
+    const rows = s.track_b.filter(r => r.workload === wl);
+    const pcol = Object.keys(rows[0] || {}).find(k => k.startsWith("mcnemar_p") && k.endsWith("_holm"));
+    table($("#tableB"), [
+      { h: "System", f: r => esc(r.role === "router" ? nice(r.label) : r.label) },
+      { h: "Type", f: r => r.role === "router" ? "router" : "single model" },
+      { h: "Questions", r: 1, f: r => r.n },
+      { h: "Accuracy (95% CI)", r: 1, f: r => r.accuracy == null ? "–" : `${(r.accuracy * 100).toFixed(1)}% <span class="muted">(${(r.acc_lo * 100).toFixed(0)}–${(r.acc_hi * 100).toFixed(0)})</span>` },
+      { h: "$/1k req", r: 1, f: r => usd(r.cost_per_1k_usd) },
+      { h: "$/1k correct", r: 1, f: r => usd(r.cost_per_correct_usd == null ? null : r.cost_per_correct_usd * 1000) },
+      { h: "vs best model", r: 1, f: r => r.quality_retained == null ? "–" : fmt(r.quality_retained * 100, "%") },
+      { h: "Saved vs best", r: 1, f: r => r.cost_saved_vs_strongest == null ? "–" : fmt(r.cost_saved_vs_strongest * 100, "%") },
+      { h: `p vs ${nice(s.ref)}`, r: 1, f: r => pcol && r[pcol] != null ? r[pcol].toFixed(3) : "–" },
+    ], rows, r => rc(s)(r.label));
+  }
+  if (s.load) {
+    table($("#tableL"), [
+      { h: "System", f: r => esc(nice(r.system)) },
+      { h: "Target", r: 1, f: r => r.target_rps + " req/s" },
+      { h: "Achieved", r: 1, f: r => r.achieved_rps == null ? "–" : r.achieved_rps.toFixed(1) + " req/s" },
+      { h: "Errors", r: 1, f: r => fmt(r.error_rate * 100, "%") },
+      { h: "p50", r: 1, f: r => fmt(r.ttft_p50_ms, "ms") },
+      { h: "p99", r: 1, f: r => fmt(r.ttft_p99_ms, "ms") },
+      { h: "Target met", f: r => r.meets_slo ? "yes" : "no" },
+    ], s.load, r => rc(s)(r.system));
+  }
+}
+
+/* ---------------- boot */
+(async function boot() {
+  try { state.config = await api("/api/config"); }
+  catch (e) { $("#formMsg").textContent = "Can't reach the server: " + e.message; return; }
+  renderForm();
+  await loadHistory();
+  const m = location.hash.match(/run=([\w-]+)/);
+  if (m) selectRun(m[1]);
+})();
+let resizeT; addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => state.summary && renderCharts(), 150); });
+</script>
+</body>
+</html>

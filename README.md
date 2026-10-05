@@ -43,6 +43,25 @@ gbench load --systems concentrate,openrouter,ramp-router
 gbench report results --report-dir reports/$(date +%Y%m%d)
 ```
 
+## Web UI (v1: Concentrate vs OpenRouter)
+
+```bash
+pip install -e '.[ui]'
+gbench ui                         # open http://127.0.0.1:8765
+```
+
+- **Demo mode** runs against mock gateways on your machine (free, ~30 s), so you can see the
+  whole flow before adding keys. Demo numbers are synthetic and labelled as such.
+- **Live mode** calls the real services using `CONCENTRATE_API_KEY`, `OPENROUTER_API_KEY`
+  (and optionally `OPENAI_API_KEY` for the direct-call baseline) from `.env`. Keys never leave
+  the server process.
+- Pick tests (speed & fees, routing quality, load), set sample sizes, see the estimated number of
+  calls, then watch live progress. Results show a head-to-head scorecard (each gap marked
+  *confirmed* or *not yet conclusive* by its statistical test), latency distributions, an
+  accuracy-vs-cost chart with the models each router chose, and load-test tail latency.
+- Every run is saved under `results/ui/<run-id>/` (raw JSONL + the exact configs used), so
+  `gbench report results/ui/<run-id>` produces the same analysis as a Markdown report.
+
 ## Repo layout
 
 ```
@@ -54,6 +73,7 @@ configs/
   prices.yaml       fallback list prices + known markups (used only when cost isn't reported)
   scorecard.yaml    composite weights, sensitivity alternatives, feature-parity matrix
   dryrun/           mock configs used by scripts/dryrun.py
+  ui_demo/          mock configs used by the UI demo mode
 gateway_bench/
   client.py         async OpenAI-compatible client; records TTFT, e2e, tokens, served model, billed cost
   track_a.py        interleaved, randomized overhead runs with warm-up and cache-busting nonces
@@ -61,6 +81,7 @@ gateway_bench/
   load.py           open-loop Poisson load generator
   analysis.py       bootstrap CIs, Mann-Whitney, McNemar, Holm, Pareto, AIQ, scorecard
   report.py         CSV tables, latency CDFs, cost-quality frontiers, REPORT.md
+  ui/               local web UI (FastAPI server + single-page front end)
   datasets.py       workload JSONL format + GSM8K / MMLU-Pro / MATH-500 preparation
 scripts/
   mock_gateway.py   fake OpenAI-compatible server for tests and dry runs

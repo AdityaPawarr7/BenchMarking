@@ -1,0 +1,7 @@
+workloads:
+  - {name: mock-math, path: data/sample/mock.jsonl}
+routers: [concentrate, openrouter]
+baselines: [direct-openai:small, direct-frontier:frontier]
+max_tokens: 64
+temperature: 0
+concurrency: 16

@@ -20,6 +20,8 @@ async def run_track_a(
     shapes_filter: list[str] | None = None,
     seed: int = 0,
     log=print,
+    progress=None,
+    out_path: str | Path | None = None,
 ) -> Path:
     cfg = load_yaml(cfg_path)
     alias = cfg.get("model_alias", "small")
@@ -52,7 +54,7 @@ async def run_track_a(
         rng.shuffle(round_jobs)          # randomized round-robin interleaving
         jobs.extend(round_jobs)
 
-    out = Path(out_dir) / f"track_a_{time.strftime('%Y%m%d_%H%M%S')}.jsonl"
+    out = Path(out_path) if out_path else Path(out_dir) / f"track_a_{time.strftime('%Y%m%d_%H%M%S')}.jsonl"
     writer = ResultWriter(out, {"track": "A", "baseline": cfg.get("baseline"), "model_alias": alias})
     sem = asyncio.Semaphore(conc)
     done = 0
@@ -72,6 +74,8 @@ async def run_track_a(
             rec.pop("text", None)            # Track A doesn't need output text
             writer.write(rec)
             done += 1
+            if progress:
+                progress(done, total)
             if done % 50 == 0 or done == total:
                 log(f"  track A: {done}/{total}")
 

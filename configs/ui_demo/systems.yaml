@@ -1,0 +1,8 @@
+# Demo mode for the UI: local mock gateways named like the real systems. No API calls, no cost.
+# Numbers produced in demo mode are synthetic and must never be reported as results.
+defaults: {timeout_s: 30}
+systems:
+  - {name: direct-openai,   kind: baseline, base_url: "http://127.0.0.1:9301/v1", api_key_env: GBENCH_DEMO_KEY, tracks: [A, B], models: {small: gpt-small}}
+  - {name: direct-frontier, kind: baseline, base_url: "http://127.0.0.1:9302/v1", api_key_env: GBENCH_DEMO_KEY, tracks: [B],    models: {frontier: gpt-frontier}}
+  - {name: concentrate,     kind: router,   base_url: "http://127.0.0.1:9303/v1", api_key_env: GBENCH_DEMO_KEY, tracks: [A, B], models: {small: openai/gpt-small}, router_model: auto}
+  - {name: openrouter,      kind: router,   base_url: "http://127.0.0.1:9304/v1", api_key_env: GBENCH_DEMO_KEY, tracks: [A, B], models: {small: openai/gpt-small}, router_model: openrouter/auto}

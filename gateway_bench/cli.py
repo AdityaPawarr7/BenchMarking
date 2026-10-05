@@ -56,7 +56,16 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--report-dir", default="reports/latest")
     pr.add_argument("--reference", default="concentrate", help="system that significance tests compare against")
 
+    pu = sub.add_parser("ui", help="local web UI: Concentrate vs OpenRouter (needs '.[ui]')")
+    pu.add_argument("--host", default="127.0.0.1")
+    pu.add_argument("--port", type=int, default=8765)
+
     args = p.parse_args(argv)
+
+    if args.cmd == "ui":
+        from .ui.server import serve
+        serve(args.host, args.port)
+        return 0
 
     if args.cmd == "prepare-data":
         from .datasets import prepare_all

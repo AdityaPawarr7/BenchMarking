@@ -1,0 +1,7 @@
+model_alias: small
+shape: {input_tokens: 200, output_tokens: 20}
+stream: true
+rates_rps: [5, 20, 50]
+step_duration_s: 5
+slo_p99_ttft_ms: 400
+max_error_rate: 0.01

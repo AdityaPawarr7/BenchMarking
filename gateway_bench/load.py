@@ -20,6 +20,8 @@ async def run_load(
     duration_s: float | None = None,
     seed: int = 0,
     log=print,
+    progress=None,
+    out_path: str | Path | None = None,
 ) -> Path:
     cfg = load_yaml(cfg_path)
     alias = cfg.get("model_alias", "small")
@@ -27,10 +29,12 @@ async def run_load(
     rates = rates or cfg["rates_rps"]
     duration = float(duration_s or cfg.get("step_duration_s", 60))
     stream = bool(cfg.get("stream", True))
-    out = Path(out_dir) / f"load_{time.strftime('%Y%m%d_%H%M%S')}.jsonl"
+    out = Path(out_path) if out_path else Path(out_dir) / f"load_{time.strftime('%Y%m%d_%H%M%S')}.jsonl"
     writer = ResultWriter(out, {"track": "load", "model_alias": alias})
     rng = random.Random(seed)
 
+    steps = [(s, r) for s in systems if alias in s.models for r in rates]
+    step_i = 0
     async with make_client(max_connections=2048) as client:
         for s in systems:
             if alias not in s.models:
@@ -45,6 +49,9 @@ async def run_load(
                     tasks.append(asyncio.create_task(_one(client, s, alias, msgs, shape, stream, rate, writer)))
                     await asyncio.sleep(rng.expovariate(rate))   # open loop: don't wait for responses
                 await asyncio.gather(*tasks)
+                step_i += 1
+                if progress:
+                    progress(step_i, len(steps))
     writer.close()
     log(f"Load results -> {out}")
     return out
