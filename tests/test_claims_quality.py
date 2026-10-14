@@ -51,7 +51,7 @@ def test_build_claims_verdicts():
     assert v["or_nomarkup"] == "holds"
     assert v["or_latency"] == "holds"
     assert v["or_gpqa"] == "holds"
-    assert v["conc_oneline"] == "partly"
+    assert not {"conc_oneline", "conc_bench", "or_swe"} & set(v)        # only API-call and quality claims
     assert any(g["key"] == "gpqa_diamond" for g in out["glossary"])
 
 

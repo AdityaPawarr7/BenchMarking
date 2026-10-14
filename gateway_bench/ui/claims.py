@@ -246,24 +246,6 @@ def build_claims(ctx: dict) -> dict:
             "for the tokens processed (Concentrate doesn't return per-request cost).",
         found=found, verdict=v, evidence=ev)
 
-    # one-line switch / model names
-    if match and or_models:
-        ids = [m["id"] for m in or_models if ":" not in m.get("id", "")]
-        hit_any = [i for i in ids if match(i)]
-        exact = [i for i in ids if (lambda r: r and (i in (r["id"], *r["aliases"]) or i.split("/", 1)[-1] in (r["id"], *r["aliases"])))(match(i))]
-        found = (f"The API is OpenAI-compatible (same request and response format; our runs use one client for both). "
-                 f"But model names differ: {len(exact)} of {len(ids)} OpenRouter model IDs work as-is on Concentrate "
-                 f"(ID or alias), {len(hit_any)} after ignoring punctuation (5.5 vs 5-5).")
-        v = "partly"
-        ev = [{"label": "Example", "value": "anthropic/claude-opus-5.5 → 404 on Concentrate; it needs claude-opus-5-5 "
-                                           "(aliases include opus-5.5 but not claude-opus-5.5)."}]
-    else:
-        v, found, ev = "not tested", "Needs both model lists.", []
-    add(id="conc_oneline", who="concentrate", claim="Integrate in 30 seconds: change one line", source=CONC_URL,
-        means="Point your existing OpenAI-style code at Concentrate's URL and it works.",
-        how="Same client sends identical requests to both gateways in every run; count how many OpenRouter model IDs "
-            "Concentrate accepts unchanged.", found=found, verdict=v, evidence=ev)
-
     # Concentrate's claim about OpenRouter
     rr = speed.get("or_reported_vs_list")
     add(id="conc_about_or", who="concentrate", claim="OpenRouter adds about 3% for payment processing plus a 3% platform fee",
@@ -276,12 +258,6 @@ def build_claims(ctx: dict) -> dict:
                + " So the total is about 5.5%, charged once at top-up, not per request."),
         verdict="partly", evidence=[{"label": "Source", "value": OR_FAQ},
                                     {"label": "Example", "value": "$30 on the OpenRouter dashboard ≈ $28.13 of usage × 1.055"}])
-
-    add(id="conc_bench", who="concentrate", claim="No benchmark scores published", source=CONC_URL,
-        means="—", how="Read concentrate.ai, /models and /features/routing.",
-        found="Concentrate's site makes no benchmark claims (no SWE-bench, GPQA or router leaderboard). Its claims are "
-              "about price and integration, checked above. Concentrate is also not on OpenRouter's Router Index.",
-        verdict="info", evidence=[{"label": "Router Index", "value": OR_ROUTERS}])
 
     # ------------------------------------------------ OpenRouter
     add(id="or_nomarkup", who="openrouter", claim="No markup on inference: you pay provider prices", source=OR_FAQ,
@@ -339,14 +315,6 @@ def build_claims(ctx: dict) -> dict:
         how="Same 198 questions, same model, through both gateways (Quality parity). Compare with the published number.",
         found=found, verdict=v,
         evidence=[{"label": "Published source", "value": pubg.get("source")}] if pubg else [])
-
-    add(id="or_swe", who="openrouter", claim="SWE-bench Multimodal 70.2% and Intelligence Index (Opus 5.5 model page)", source=OR_URL + "/anthropic/claude-opus-5.5",
-        means="Third-party model scores (Vals AI, Artificial Analysis) shown on the model page. They describe the model, "
-              "not OpenRouter.",
-        how="Not rerun: agentic benchmarks need a full harness and hours per run, and a gateway can only lower the score. "
-            "Quality parity is the gateway-relevant version: if both gateways match on GPQA/MMLU-Pro/GSM8K for the "
-            "same model, there's no reason to expect a SWE-bench gap.",
-        found="Shown as context; see the glossary for what each benchmark measures.", verdict="not tested")
 
     counts: dict[str, int] = {}
     for c in claims:

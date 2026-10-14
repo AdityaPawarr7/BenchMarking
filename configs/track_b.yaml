@@ -5,6 +5,7 @@ workloads:
   - {name: qa,        path: data/prepared/mmlu_pro.jsonl,  max_items: 750}
   - {name: math,      path: data/prepared/gsm8k.jsonl,     max_items: 750}
   - {name: reasoning, path: data/prepared/math500.jsonl,   max_items: 500}
+  - {name: gpqa,      path: data/prepared/gpqa_diamond.jsonl}   # 198 questions; download with the Quality parity panel
   - {name: sample,    path: data/sample/sample.jsonl}      # tiny smoke-test set
 
 # Routers run in routing mode (their router_model). Fixed baselines run one model for every prompt.
