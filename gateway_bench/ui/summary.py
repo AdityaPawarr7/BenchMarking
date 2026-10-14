@@ -15,7 +15,7 @@ from ..pricing import PriceBook
 from ..results import read_results
 
 _META_COLS = ("meta.rep", "meta.warmup", "meta.shape", "meta.workload", "meta.label", "meta.role", "meta.item_id",
-              "meta.target_rps", "baseline", "correct", "cost_usd", "model_served", "output_tps")
+              "meta.target_rps", "meta.set", "baseline", "correct", "cost_usd", "model_served", "output_tps")
 
 
 def clean(obj: Any) -> Any:
@@ -219,7 +219,7 @@ def billing_analysis(df: pd.DataFrame, catalog: dict | None, billing: dict, ref:
 
 def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "concentrate",
                   rival: str = "openrouter", load_cfg: dict | None = None, catalog: dict | None = None,
-                  billing: dict | None = None) -> dict:
+                  billing: dict | None = None, published: dict | None = None) -> dict:
     run_dir = Path(run_dir)
     files = sorted(run_dir.glob("*.jsonl"))
     if not files:
@@ -399,6 +399,23 @@ def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "conc
             metrics.append(_metric("max_rps", "Max sustained load (p99 within SLO)", "req/s", "higher", "load",
                                    ref, rival, float(ms.get(ref, 0.0)), float(ms.get(rival, 0.0))))
 
+    # ---------------- Quality parity (same model, same questions, each gateway)
+    tq = df[df.track == "Q"].copy()
+    if not tq.empty:
+        q = quality_summary(tq, ref, rival, published or {})
+        out["quality"] = q
+        tot = q.get("overall") or {}
+        if tot.get("n"):
+            metrics.append(_metric("accuracy_q", "Same-model accuracy (quality parity)", "%", "higher", "Q", ref, rival,
+                                   tot["acc"][ref], tot["acc"][rival], p=tot["p"],
+                                   note=f"{tot['n']} questions both answered; paired McNemar test. "
+                                        "A real gap means something between you and the model differs"))
+            metrics.append(_metric("cost_q", "Cost per question, same model", "$", "lower", "Q", ref, rival,
+                                   tot["cost_q"][ref], tot["cost_q"][rival],
+                                   note="mean over answered questions" + ("; " + tot["cost_note"] if tot.get("cost_note") else "")))
+            metrics.append(_metric("time_q", "Time per question (median)", "ms", "lower", "Q", ref, rival,
+                                   tot["time_q"][ref], tot["time_q"][rival], note="request sent to last token"))
+
     ta_all = df[(df.track == "A") & (df["meta.warmup"] != True)]  # noqa: E712
     bill = billing_analysis(df, catalog, billing or {}, ref, rival,
                             paired_requests(ta_all, ref, rival) if len(ta_all) else None)
@@ -422,3 +439,67 @@ def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "conc
         "total": len(metrics),
     }
     return clean(out)
+
+
+def _wilson(k: int, n: int, z: float = 1.96) -> tuple[float | None, float | None]:
+    if not n:
+        return None, None
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return (c - h) * 100, (c + h) * 100
+
+
+def quality_summary(tq: pd.DataFrame, ref: str, rival: str, published: dict) -> dict:
+    """Per question set: paired accuracy through each gateway, agreement, cost and time per question,
+    and the score OpenRouter publishes for the same model (when it has one)."""
+    tq = tq.copy()
+    tq["label"] = tq["meta.label"].fillna(tq.system)
+    tq["meta.rep"] = tq["meta.rep"].fillna(0)
+    key = ["meta.set", "meta.item_id", "meta.rep"]
+    sets = []
+
+    def block(g: pd.DataFrame, name: str) -> dict:
+        r = g[(g.label == ref) & g.correct.notna()].set_index(key)
+        v = g[(g.label == rival) & g.correct.notna()].set_index(key)
+        both = r.index.intersection(v.index)
+        rc, vc = r.loc[both].correct.astype(bool), v.loc[both].correct.astype(bool)
+        n = int(len(both))
+        row: dict[str, Any] = {"set": name, "n": n,
+                               "asked": {ref: int((g.label == ref).sum()), rival: int((g.label == rival).sum())},
+                               "failed": {ref: int(((g.label == ref) & (g.ok != True)).sum()),  # noqa: E712
+                                          rival: int(((g.label == rival) & (g.ok != True)).sum())}}  # noqa: E712
+        if not n:
+            return row
+        kr, kv = int(rc.sum()), int(vc.sum())
+        row["acc"] = {ref: kr / n * 100, rival: kv / n * 100}
+        row["ci"] = {ref: _wilson(kr, n), rival: _wilson(kv, n)}
+        row["both_right"] = int((rc & vc).sum())
+        row["only_ref"] = int((rc & ~vc).sum())
+        row["only_rival"] = int((~rc & vc).sum())
+        row["both_wrong"] = int((~rc & ~vc).sum())
+        row["agreement"] = (row["both_right"] + row["both_wrong"]) / n * 100
+        row["p"] = A.mcnemar_exact(rc, vc)
+        cost, tm, src = {}, {}, []
+        for lab, frame in ((ref, r.loc[both]), (rival, v.loc[both])):
+            c = frame.cost_usd.dropna()
+            cost[lab] = float(c.mean()) if len(c) else None
+            tm[lab] = float(frame.e2e_ms.median()) if frame.e2e_ms.notna().any() else None
+            if "cost_source" in frame and frame.cost_source.isin(["catalog_estimate", "list_price"]).any():
+                src.append(lab)
+        row["cost_q"], row["time_q"] = cost, tm
+        row["cost_note"] = (", ".join(src) + ": estimated from list price") if src else ""
+        out_tok = {lab: (float(fr.output_tokens.mean()) if fr.output_tokens.notna().any() else None)
+                   for lab, fr in ((ref, r.loc[both]), (rival, v.loc[both]))}
+        row["out_tokens"] = out_tok
+        return row
+
+    for name, g in tq.groupby("meta.set"):
+        row = block(g, str(name))
+        pub = (published.get("benchmarks") or {}).get(str(name))
+        if pub:
+            row["published"] = pub
+        sets.append(row)
+    overall = block(tq.assign(**{"meta.set": tq["meta.set"].astype(str)}), "all")
+    return {"sets": sets, "overall": overall, "model": published.get("model"), "published_source": published.get("source")}

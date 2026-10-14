@@ -1,0 +1,10 @@
+# Quality parity: the same model through each gateway on auto-graded question sets.
+# Download the sets from the UI (Quality parity -> Download) or:  gbench prepare-data --only gpqa_diamond,mmlu_pro,gsm8k
+# GPQA is gated: accept its terms at https://huggingface.co/datasets/Idavidrein/gpqa and set HF_TOKEN in .env.
+sets:
+  - {name: gpqa_diamond, label: GPQA Diamond, path: data/prepared/gpqa_diamond.jsonl, published: gpqa_diamond}
+  - {name: mmlu_pro,     label: MMLU-Pro,     path: data/prepared/mmlu_pro.jsonl}
+  - {name: gsm8k,        label: GSM8K,        path: data/prepared/gsm8k.jsonl}
+max_tokens: 8192      # room for reasoning; a cut-off answer is scored wrong
+concurrency: 8
+repeats: 1

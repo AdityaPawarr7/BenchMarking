@@ -3,257 +3,447 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gateway Benchmark</title>
+<title>Concentrate × OpenRouter Bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,600&family=IBM+Plex+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+/* Two brands on one page.
+   Frame = Concentrate: near-black, Inter, IBM Plex Mono eyebrows, square corners, green accent, dot grid.
+   OpenRouter's side of every comparison = its own look: Plus Jakarta Sans, Geist Mono, lime, rounded.
+   Colour is never the only cue: Concentrate marks are squares, OpenRouter marks are circles, and
+   the two colours differ strongly in lightness (green L*≈56 vs lime L*≈95), which survives colour-blindness. */
 :root {
-  color-scheme: light;
-  --bg: #f6f6f4;
-  --surface: #fcfcfb;
-  --surface-2: #f0efec;
-  --border: #e2e1dc;
-  --border-strong: #cfcdc6;
-  --text: #0b0b0b;
-  --text-2: #52514e;
-  --text-3: #75736e;
-  --grid: #e9e8e4;
-  --axis: #a9a7a0;
-  --ref: #2a78d6;          /* Concentrate: categorical slot 1 */
-  --ref-soft: #2a78d61f;
-  --rival: #eb6834;        /* OpenRouter: categorical slot 2 */
-  --rival-soft: #eb68341f;
-  --base: #8d8b85;         /* direct-provider baseline: neutral */
-  --good: #1a7f37;
-  --warn: #9a6700;
-  --bad: #c62828;
-  --accent-ink: #1c5cab;
-  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 1px 1px rgba(0,0,0,.03);
-  --radius: 10px;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #2e2e2b; --border-strong: #3d3d39;
-    --text: #ffffff; --text-2: #c3c2b7; --text-3: #9a998f; --grid: #2a2a27; --axis: #5c5b55;
-    --ref: #3987e5; --ref-soft: #3987e526; --rival: #d95926; --rival-soft: #d9592626; --base: #8f8d86;
-    --good: #3fb950; --warn: #d29922; --bad: #f85149; --accent-ink: #86b6ef;
-    --shadow: none;
-  }
-}
-#tablePaired td, #tablePaired th { padding-left: 6px; padding-right: 6px; }
-:root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #121211; --surface: #1a1a19; --surface-2: #232321; --border: #2e2e2b; --border-strong: #3d3d39;
-  --text: #ffffff; --text-2: #c3c2b7; --text-3: #9a998f; --grid: #2a2a27; --axis: #5c5b55;
-  --ref: #3987e5; --ref-soft: #3987e526; --rival: #d95926; --rival-soft: #d9592626; --base: #8f8d86;
-  --good: #3fb950; --warn: #d29922; --bad: #f85149; --accent-ink: #86b6ef;
+  --bg: #010202;
+  --surface: #08090a;
+  --surface-2: #1A1B1E;
+  --border: #2D2E32;
+  --border-strong: #45474d;
+  --text: #ffffff;
+  --text-2: rgba(255,255,255,.72);
+  --text-3: rgba(255,255,255,.50);
+  --grid: #1c1d20;
+  --axis: #4a4c52;
+  --ref: #3D9970;                 /* Concentrate green */
+  --ref-soft: rgba(61,153,112,.16);
+  --ref-ink: #6fd3a5;             /* green for text on black */
+  --ref-deep: #025C3F;
+  --rival: #C8FF00;               /* OpenRouter lime */
+  --rival-soft: rgba(200,255,0,.12);
+  --rival-ink: #d8ff4d;
+  --or-bg: #03080A;
+  --or-fg: #FCFCFE;
+  --or-muted: rgba(252,252,254,.627);
+  --or-border: rgba(252,252,254,.08);
+  --or-card: rgba(252,252,254,.03);
+  --base: #8a8d94;
+  --good: #4cc9f0;                /* status colours stay clear of both brand hues */
+  --warn: #DF7A32;
+  --bad: #ff5a5f;
+  --bad-edge: #D73337;
+  --accent-ink: var(--ref-ink);
   --shadow: none;
+  --radius: 0px;
+  --or-radius: 8px;
+  --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --or-sans: "Plus Jakarta Sans", Inter, -apple-system, sans-serif;
+  --or-mono: "Geist Mono", ui-monospace, Menlo, monospace;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-body {
-  background: var(--bg); color: var(--text);
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; letter-spacing: -.005em; }
 button, input, select { font: inherit; color: inherit; }
+a { color: var(--ref-ink); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: var(--mono); font-size: .92em; background: var(--surface-2); padding: 1px 5px; }
 .num { font-variant-numeric: tabular-nums; }
-
-/* ---------- top bar */
-.topbar {
-  display: flex; align-items: center; gap: 16px; padding: 14px 24px;
-  border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 20;
-}
-.brand { display: flex; align-items: baseline; gap: 10px; }
-.brand h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
-.brand .sub { color: var(--text-3); font-size: 13px; }
-.vs { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-2); }
-.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
-.dot.ref { background: var(--ref); } .dot.rival { background: var(--rival); } .dot.base { background: var(--base); }
-.spacer { flex: 1; }
-.iconbtn { border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 5px 10px; cursor: pointer; color: var(--text-2); font-size: 13px; }
-.iconbtn:hover { border-color: var(--border-strong); color: var(--text); }
-
-/* ---------- layout */
-.layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; padding: 20px 24px 48px; max-width: 1480px; margin: 0 auto; }
-@media (max-width: 960px) { .layout { grid-template-columns: 1fr; padding: 16px; } }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
-.card-h { display: flex; align-items: center; gap: 8px; padding: 14px 16px 0; }
-.card-h h2, .card-h h3 { font-size: 14px; margin: 0; font-weight: 650; }
-.card-b { padding: 12px 16px 16px; }
 .muted { color: var(--text-3); }
 .small { font-size: 12.5px; }
-.sidebar { display: flex; flex-direction: column; gap: 16px; }
-.main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-
-/* ---------- form */
-.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--surface-2); border-radius: 8px; padding: 3px; gap: 3px; }
-.seg button { border: 0; background: transparent; padding: 6px 8px; border-radius: 6px; cursor: pointer; color: var(--text-2); font-weight: 550; }
-.seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--border); }
-.field { margin-top: 12px; }
-.field > label, .lbl { display: block; font-size: 12px; font-weight: 600; color: var(--text-2); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .03em; }
-.syslist { display: flex; flex-direction: column; gap: 6px; }
-.sysrow { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; }
-.sysrow .name { font-weight: 600; }
-.sysrow .meta { color: var(--text-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-.badge { font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
-.badge.ok { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
-.badge.no { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
-.badge.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
-.badge.neutral { color: var(--text-2); background: var(--surface-2); }
-.test { border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; }
-.test > .test-h { display: flex; align-items: flex-start; gap: 10px; padding: 10px; cursor: pointer; }
-.test > .test-h input { margin-top: 3px; accent-color: var(--ref); }
-.test .t-name { font-weight: 600; }
-.test .t-desc { color: var(--text-3); font-size: 12.5px; }
-.test .test-b { padding: 0 10px 10px 34px; display: grid; gap: 10px; }
-.test[data-off="true"] .test-b { display: none; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; cursor: pointer; background: var(--surface); user-select: none; }
-.chip[aria-pressed="true"] { border-color: var(--ref); color: var(--accent-ink); background: var(--ref-soft); }
-.chip[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
-.inline { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.inline input[type=number], .inline input[type=text] { width: 84px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
-.inline input[type=text].wide { width: 130px; }
-.check { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
-.check input { accent-color: var(--ref); }
-.estimate { margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); font-size: 13px; display: flex; justify-content: space-between; gap: 8px; }
-.btn { width: 100%; margin-top: 12px; border: 0; border-radius: 8px; padding: 10px 14px; font-weight: 650; cursor: pointer; background: var(--text); color: var(--surface); }
-.btn:disabled { opacity: .4; cursor: not-allowed; }
-.btn.secondary { background: transparent; color: var(--text); border: 1px solid var(--border-strong); width: auto; margin: 0; padding: 6px 12px; font-weight: 600; }
-select.full, input.full { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 13px; }
-input.full { margin-top: 6px; }
-.modelchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); background: var(--surface-2); border-radius: 999px; padding: 2px 10px; }
-.modelchip b { color: var(--text); font-weight: 600; font-family: var(--mono); font-size: 12px; }
-.formmsg { margin-top: 10px; font-size: 12.5px; color: var(--bad); }
-.formmsg:empty { display: none; }
-.note { font-size: 12.5px; color: var(--text-2); background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
-
-/* ---------- history */
-.history { list-style: none; margin: 0; padding: 4px 6px 8px; max-height: 360px; overflow: auto; }
-.history li button { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; width: 100%; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
-.history li button:hover { background: var(--surface-2); }
-.history li button[aria-current="true"] { background: var(--ref-soft); }
-.history .h-title { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.history .h-sub { grid-column: 1 / -1; color: var(--text-3); font-size: 12px; }
-
-/* ---------- status */
-.pill { font-size: 12px; font-weight: 650; border-radius: 999px; padding: 2px 9px; text-transform: capitalize; }
-.pill.running, .pill.queued { color: var(--accent-ink); background: var(--ref-soft); }
-.pill.done { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
-.pill.failed, .pill.interrupted { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
-.fair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; padding: 12px 16px 16px; }
-@media (max-width: 1100px) { .fair { grid-template-columns: 1fr; } }
-.fair h4 { margin: 0 0 4px; font-size: 13.5px; }
-.fair p { margin: 0 0 8px; }
-.fair .tablewrap { padding-left: 0; padding-right: 0; }
-.billform { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-items: end; }
-.billform label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--text-2); }
-.billform label .dot { display: inline-block; margin-right: 4px; }
-.billform label.wide { grid-column: 1 / -1; }
-.billform input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 13px; }
-.cheap { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.cheap .chip { font-size: 12px; }
-.pill.done_with_errors { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
-.checks { display: grid; gap: 6px; margin-bottom: 14px; }
-.checkrow { display: grid; grid-template-columns: 20px 150px 1fr; gap: 8px; font-size: 12.5px; align-items: start; }
-.checkrow .ic { font-weight: 700; }
-.checkrow .ic.ok { color: var(--good); } .checkrow .ic.no { color: var(--bad); }
-.checkrow .msg { color: var(--text-2); word-break: break-word; }
-td.wrap { white-space: normal; max-width: 520px; color: var(--text-2); font-size: 12px; }
-.pill.cancelled { color: var(--text-2); background: var(--surface-2); }
-.runhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; }
-.runhead h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
-.demo-banner { margin: 0 16px 14px; padding: 9px 12px; border-radius: 8px; font-size: 13px; background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--text); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
-.errbox { margin: 0 16px 14px; padding: 9px 12px; border-radius: 8px; font-size: 13px; background: color-mix(in srgb, var(--bad) 10%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
-.phases { display: grid; gap: 10px; }
-.phase { display: grid; grid-template-columns: 190px 1fr 92px; align-items: center; gap: 12px; font-size: 13px; }
-@media (max-width: 640px) { .phase { grid-template-columns: 1fr; gap: 4px; } }
-.bar { height: 8px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
-.bar > span { display: block; height: 100%; background: var(--ref); border-radius: 99px; transition: width .4s ease; }
-.phase[data-status="done"] .bar > span { background: var(--good); }
-.phase[data-status="failed"] .bar > span, .phase[data-status="cancelled"] .bar > span { background: var(--base); }
-details.log { margin-top: 12px; }
-details.log summary { cursor: pointer; color: var(--text-2); font-size: 12.5px; }
-details.log pre { font: 12px/1.5 var(--mono); background: var(--surface-2); padding: 10px 12px; border-radius: 8px; max-height: 220px; overflow: auto; margin: 8px 0 0; white-space: pre-wrap; }
-
-/* ---------- verdict + metric cards */
-.verdict { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: center; padding: 16px; }
-@media (max-width: 640px) { .verdict { grid-template-columns: 1fr; } }
-.tally { display: flex; align-items: stretch; gap: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-.tally > div { padding: 10px 18px; min-width: 128px; }
-.tally > div + div { border-left: 1px solid var(--border); }
-.tally .who { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); font-weight: 600; }
-.tally .n { font-size: 30px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; margin-top: 2px; }
-.tally .n small { font-size: 13px; font-weight: 500; color: var(--text-3); margin-left: 4px; }
-.verdict-text { font-size: 14px; color: var(--text-2); }
-.verdict-text strong { color: var(--text); }
-.metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
-.mcard { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px 14px 12px; display: flex; flex-direction: column; gap: 9px; box-shadow: var(--shadow); }
-.mcard .m-top { display: flex; flex-direction: column; gap: 2px; }
-.mcard .m-label { font-weight: 600; font-size: 13px; }
-.mcard .m-track { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
-.mrow { display: grid; grid-template-columns: 92px 1fr auto; align-items: center; gap: 8px; font-size: 12.5px; }
-.mrow .who { display: flex; align-items: center; gap: 6px; color: var(--text-2); white-space: nowrap; }
-.mrow .val { font-weight: 600; text-align: right; min-width: 64px; }
-.mrow.win .val { color: var(--text); }
-.mrow.win .who { color: var(--text); font-weight: 600; }
-.mbar { height: 10px; background: var(--surface-2); border-radius: 0 4px 4px 0; position: relative; }
-.mbar > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0 4px 4px 0; }
-.mfoot { font-size: 12px; color: var(--text-2); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 8px; }
-.sig { font-size: 11px; font-weight: 650; border-radius: 4px; padding: 1px 6px; }
-.sig.yes { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
-.sig.no { color: var(--text-2); background: var(--surface-2); }
-
-/* ---------- sections */
-.section-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 16px 0; }
-.section-h h3 { margin: 0; font-size: 14px; font-weight: 650; }
-.section-h .desc { color: var(--text-3); font-size: 12.5px; flex-basis: 100%; }
-.controls { display: flex; gap: 8px; align-items: center; margin-left: auto; }
-select { padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 13px; }
-.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2); padding: 10px 16px 0; }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
-.legend .swatch-line { width: 16px; height: 2px; border-radius: 2px; }
-.legend .swatch-dash { width: 16px; height: 0; border-top: 2px dashed var(--base); }
-.chart { position: relative; padding: 6px 8px 4px; }
-.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
-.chart text { fill: var(--text-3); font-size: 11px; font-family: inherit; }
-.chart .ax { stroke: var(--axis); stroke-width: 1; }
-.chart .gr { stroke: var(--grid); stroke-width: 1; }
-.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.12); min-width: 150px; z-index: 5; display: none; }
-.tip .t-h { font-weight: 650; margin-bottom: 4px; color: var(--text); }
-.tip .t-r { display: flex; align-items: center; gap: 6px; justify-content: space-between; color: var(--text-2); }
-.tip .t-r b { color: var(--text); font-weight: 600; }
-.two { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0; }
-@media (max-width: 1100px) { .two { grid-template-columns: 1fr; } }
-.tablewrap { overflow-x: auto; padding: 4px 16px 16px; }
-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
-th { text-align: left; color: var(--text-3); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .03em; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-td { padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
-td.r, th.r { text-align: right; }
-tr.is-ref td:first-child { box-shadow: inset 3px 0 0 var(--ref); }
-tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
-.mix { padding: 12px 16px 16px; display: grid; gap: 12px; align-content: start; }
-.mix .mix-row .who { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; margin-bottom: 5px; }
-.stack { display: flex; height: 14px; border-radius: 4px; overflow: hidden; gap: 2px; }
-.stack > span { display: block; height: 100%; }
-.mix-legend { font-size: 12px; color: var(--text-2); margin-top: 4px; }
-.empty { padding: 56px 24px; text-align: center; color: var(--text-2); }
-.empty h2 { color: var(--text); font-size: 18px; margin: 0 0 6px; }
-.empty p { margin: 0 auto; max-width: 460px; }
-.skeleton { color: var(--text-3); padding: 24px 16px; font-size: 13px; }
+.spacer { flex: 1; }
 .hidden { display: none !important; }
 :focus-visible { outline: 2px solid var(--ref); outline-offset: 2px; }
+::selection { background: var(--ref); color: #fff; }
+
+/* ---------- brand marks: square = Concentrate, circle = OpenRouter */
+.dot { width: 9px; height: 9px; display: inline-block; flex: none; vertical-align: middle; }
+.dot.ref { background: var(--ref); border-radius: 0; }
+.dot.rival { background: var(--rival); border-radius: 50%; }
+.dot.base { background: var(--base); transform: rotate(45deg) scale(.82); }
+.wm { font-weight: 600; letter-spacing: -.03em; }
+.wm.ref { font-family: var(--sans); }
+.wm.rival { font-family: var(--or-sans); font-weight: 700; letter-spacing: -.02em; }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: 2.88px; text-transform: uppercase; color: var(--ref-ink); }
+.or-eyebrow { font: 500 11.5px/1 var(--or-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--or-muted); }
+
+/* ---------- nav (Concentrate) */
+.topbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 28px; padding: 0 32px; height: 60px;
+  background: rgba(1,2,2,.86); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; letter-spacing: -.04em; }
+.brand .glyph { width: 14px; height: 14px; background: var(--ref); box-shadow: 4px 4px 0 var(--ref-deep); }
+.brand .x { color: var(--text-3); font-weight: 400; margin: 0 2px; }
+.brand .or { font-family: var(--or-sans); font-weight: 700; letter-spacing: -.02em; }
+.navlinks { display: flex; gap: 22px; font-size: 14px; }
+.navlinks a { color: var(--text-2); }
+.navlinks a:hover { color: var(--text); text-decoration: none; }
+.navtag { font: 500 11px/1 var(--mono); letter-spacing: 2px; text-transform: uppercase; color: var(--text-3); border: 1px solid var(--border); padding: 7px 10px; }
+@media (max-width: 860px) { .navlinks, .navtag { display: none; } .topbar { padding: 0 16px; } }
+
+/* ---------- hero (Concentrate) */
+.hero { position: relative; padding: 84px 32px 56px; border-bottom: 1px solid var(--border); overflow: hidden; }
+.hero::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(rgba(255,255,255,.13) 1px, transparent 1.2px); background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse 80% 90% at 30% 20%, #000 30%, transparent 75%); -webkit-mask-image: radial-gradient(ellipse 80% 90% at 30% 20%, #000 30%, transparent 75%); }
+.hero::after { content: ""; position: absolute; width: 620px; height: 620px; right: -160px; top: -220px; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(61,153,112,.22), transparent); }
+.hero-in { position: relative; max-width: 1480px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 48px; align-items: end; }
+@media (max-width: 1100px) { .hero-in { grid-template-columns: 1fr; } .hero { padding: 56px 16px 40px; } }
+.hero h1 { margin: 18px 0 18px; font-size: clamp(40px, 6vw, 76px); line-height: .98; font-weight: 600; letter-spacing: -.04em; }
+.hero h1 em { font-style: italic; color: var(--ref); }
+.hero p.lede { font-size: 18px; line-height: 1.5; color: var(--text-2); max-width: 620px; margin: 0 0 28px; letter-spacing: -.01em; }
+.ctas { display: flex; gap: 14px; flex-wrap: wrap; }
+
+/* corner-tick buttons */
+.cta { position: relative; display: inline-flex; align-items: center; gap: 10px; padding: 13px 22px; font-weight: 600; font-size: 14.5px; letter-spacing: -.02em;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer; text-decoration: none !important; }
+.cta.primary { background: #fff; color: #010202; border-color: #fff; }
+.cta.primary:hover { background: #e8f5ee; }
+.cta:not(.primary):hover { border-color: var(--border-strong); }
+.cta::before, .cta::after { content: ""; position: absolute; width: 7px; height: 7px; border-color: var(--ref); border-style: solid; pointer-events: none; }
+.cta::before { left: -5px; top: -5px; border-width: 1px 0 0 1px; }
+.cta::after { right: -5px; bottom: -5px; border-width: 0 1px 1px 0; }
+.cta .arrow { font-family: var(--mono); }
+
+/* versus stat strip: Concentrate panel | OpenRouter panel */
+.versus { display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: 0; }
+@media (max-width: 640px) { .versus { grid-template-columns: 1fr; } .versus .vs-mid { padding: 8px 0; } }
+.vs-panel { padding: 20px 22px; }
+.vs-panel.ref { border: 1px solid var(--border); background: linear-gradient(180deg, rgba(61,153,112,.10), rgba(61,153,112,0) 70%), var(--surface); }
+.vs-panel.rival { font-family: var(--or-sans); background: var(--or-bg); border: 1px solid var(--or-border); border-radius: var(--or-radius); color: var(--or-fg); }
+.vs-mid { display: flex; align-items: center; justify-content: center; padding: 0 14px; font: 500 12px var(--mono); letter-spacing: 2px; color: var(--text-3); }
+.vs-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 15px; }
+.vs-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+.vs-stat .n { font-size: 34px; font-weight: 600; letter-spacing: -.04em; line-height: 1; }
+.vs-panel.rival .vs-stat .n { font-weight: 700; letter-spacing: -.03em; }
+.vs-stat .l { margin-top: 6px; font-size: 12px; color: var(--text-3); }
+.vs-panel.ref .vs-stat .l { font-family: var(--mono); text-transform: uppercase; letter-spacing: 1.6px; font-size: 10.5px; }
+.vs-panel.rival .vs-stat .l { color: var(--or-muted); }
+.vs-claim { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--text-2); }
+.vs-panel.rival .vs-claim { border-color: var(--or-border); color: var(--or-muted); }
+
+/* ---------- section headers (Concentrate) */
+.band { max-width: 1480px; margin: 0 auto; padding: 0 32px; }
+@media (max-width: 960px) { .band { padding: 0 16px; } }
+.band-h { display: flex; align-items: end; gap: 24px; flex-wrap: wrap; padding: 64px 0 24px; }
+.band-h h2 { margin: 12px 0 0; font-size: clamp(28px, 3.4vw, 44px); font-weight: 600; letter-spacing: -.04em; line-height: 1.05; }
+.band-h h2 em { font-style: italic; color: var(--ref); }
+.band-h p { margin: 10px 0 0; color: var(--text-2); max-width: 720px; font-size: 15.5px; }
+
+/* ---------- layout */
+.layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 24px; padding: 0 0 24px; }
+@media (max-width: 1060px) { .layout { grid-template-columns: 1fr; } }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 0; }
+.card-h { display: flex; align-items: center; gap: 8px; padding: 16px 18px 0; }
+.card-h h2, .card-h h3 { font-size: 12px; margin: 0; font: 500 12px/1 var(--mono); letter-spacing: 2.4px; text-transform: uppercase; color: var(--ref-ink); }
+.card-b { padding: 14px 18px 18px; }
+.sidebar { display: flex; flex-direction: column; gap: 20px; align-self: start; }
+.main { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.iconbtn { border: 1px solid var(--border); background: transparent; padding: 5px 10px; cursor: pointer; color: var(--text-2); font: 500 11px var(--mono); letter-spacing: 1.4px; text-transform: uppercase; }
+.iconbtn:hover { border-color: var(--border-strong); color: var(--text); }
+
+/* ---------- form */
+.seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border); padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; padding: 7px 8px; cursor: pointer; color: var(--text-2); font: 500 12px var(--mono); letter-spacing: 1.8px; text-transform: uppercase; }
+.seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); box-shadow: inset 0 -2px 0 var(--ref); }
+.field { margin-top: 16px; }
+.field > label, .lbl { display: block; font: 500 10.5px/1.2 var(--mono); color: var(--text-3); margin-bottom: 7px; text-transform: uppercase; letter-spacing: 1.8px; }
+.syslist { display: flex; flex-direction: column; gap: 6px; }
+.sysrow { display: flex; align-items: center; gap: 9px; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border); background: var(--bg); }
+.sysrow:nth-child(2) { border-radius: var(--or-radius); background: var(--or-bg); border-color: var(--or-border); font-family: var(--or-sans); }
+.sysrow .name { font-weight: 600; }
+.sysrow .meta { color: var(--text-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; font-family: var(--mono); }
+.badge { font: 500 10.5px/1.4 var(--mono); letter-spacing: 1px; text-transform: uppercase; padding: 2px 7px; white-space: nowrap; border: 1px solid currentColor; }
+.badge.ok { color: var(--good); } .badge.no { color: var(--bad); } .badge.warn { color: var(--warn); } .badge.neutral { color: var(--text-3); }
+.test { border: 1px solid var(--border); margin-top: 8px; background: var(--bg); }
+.test:has(input[type=checkbox]:checked) { border-color: color-mix(in srgb, var(--ref) 55%, var(--border)); }
+.test > .test-h { display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px; cursor: pointer; }
+.test > .test-h input { margin-top: 3px; accent-color: var(--ref); }
+.test .t-name { font-weight: 600; letter-spacing: -.02em; }
+.test .t-new { font: 500 9.5px var(--mono); letter-spacing: 1.4px; color: #010202; background: var(--ref-ink); padding: 1px 5px; margin-left: 6px; vertical-align: 2px; }
+.test .t-desc { color: var(--text-3); font-size: 12.5px; }
+.test .test-b { padding: 0 12px 12px 36px; display: grid; gap: 10px; }
+.test[data-off="true"] .test-b { display: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--border); padding: 3px 9px; font-size: 12px; cursor: pointer; background: transparent; user-select: none; color: var(--text-2); }
+.chip[aria-pressed="true"] { border-color: var(--ref); color: var(--text); background: var(--ref-soft); }
+.chip[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
+.inline { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+.inline input[type=number], .inline input[type=text] { width: 84px; padding: 6px 8px; border: 1px solid var(--border); background: var(--bg); border-radius: 0; }
+.inline input[type=text].wide { width: 130px; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; color: var(--text-2); }
+.check input { accent-color: var(--ref); }
+.estimate { margin-top: 16px; padding: 11px 12px; border: 1px dashed var(--border); font-size: 13px; display: flex; justify-content: space-between; gap: 8px; color: var(--text-2); }
+.estimate b { color: var(--text); font-family: var(--mono); font-weight: 500; }
+.btn { position: relative; width: 100%; margin-top: 16px; border: 1px solid #fff; padding: 12px 14px; font-weight: 600; cursor: pointer; background: #fff; color: #010202; letter-spacing: -.02em; font-size: 14.5px; }
+.btn::before, .btn::after { content: ""; position: absolute; width: 7px; height: 7px; border: solid var(--ref); pointer-events: none; }
+.btn::before { left: -5px; top: -5px; border-width: 1px 0 0 1px; }
+.btn::after { right: -5px; bottom: -5px; border-width: 0 1px 1px 0; }
+.btn:hover:not(:disabled) { background: #e8f5ee; }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn.secondary { background: transparent; color: var(--text); border: 1px solid var(--border-strong); width: auto; margin: 0; padding: 7px 12px; font-size: 13px; }
+.btn.secondary::before, .btn.secondary::after { display: none; }
+select.full, input.full { width: 100%; padding: 7px 9px; border: 1px solid var(--border); background: var(--bg); font-size: 13px; border-radius: 0; }
+input.full { margin-top: 6px; }
+select { padding: 5px 8px; border: 1px solid var(--border); background: var(--bg); font-size: 13px; border-radius: 0; }
+option, optgroup { background: #111; }
+.modelchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); border: 1px solid var(--border); padding: 3px 9px; }
+.modelchip b { color: var(--text); font-weight: 500; font-family: var(--mono); font-size: 12px; }
+.formmsg { margin-top: 10px; font-size: 12.5px; color: var(--bad); }
+.formmsg:empty { display: none; }
+.note { font-size: 12.5px; color: var(--text-2); border-left: 2px solid var(--warn); background: rgba(223,122,50,.08); padding: 8px 10px; margin-top: 10px; }
+.cheap { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.cheap .chip { font-size: 12px; }
+
+/* ---------- history */
+.history { list-style: none; margin: 0; padding: 6px 8px 10px; max-height: 380px; overflow: auto; }
+.history li button { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; width: 100%; padding: 9px 10px; cursor: pointer; border-left: 2px solid transparent; }
+.history li button:hover { background: var(--surface-2); }
+.history li button[aria-current="true"] { background: var(--ref-soft); border-left-color: var(--ref); }
+.history .h-title { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history .h-sub { grid-column: 1 / -1; color: var(--text-3); font-size: 11.5px; font-family: var(--mono); }
+
+/* ---------- status */
+.pill { font: 500 10.5px/1.5 var(--mono); letter-spacing: 1.2px; text-transform: uppercase; padding: 1px 7px; border: 1px solid currentColor; white-space: nowrap; }
+.pill.running, .pill.queued { color: var(--ref-ink); }
+.pill.done { color: var(--good); }
+.pill.failed, .pill.interrupted { color: var(--bad); }
+.pill.done_with_errors { color: var(--warn); }
+.pill.cancelled { color: var(--text-3); }
+.runhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 16px 18px; }
+.runhead h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.035em; }
+.demo-banner { margin: 0 18px 14px; padding: 9px 12px; font-size: 13px; border-left: 2px solid var(--warn); background: rgba(223,122,50,.08); }
+.errbox { margin: 0 18px 14px; padding: 9px 12px; font-size: 13px; border-left: 2px solid var(--bad-edge); background: rgba(215,51,55,.10); }
+.phases { display: grid; gap: 12px; }
+.phase { display: grid; grid-template-columns: 190px 1fr 100px; align-items: center; gap: 12px; font-size: 13px; }
+@media (max-width: 640px) { .phase { grid-template-columns: 1fr; gap: 4px; } }
+.bar { height: 6px; background: var(--surface-2); overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--ref); transition: width .4s ease;
+  background-image: repeating-linear-gradient(90deg, transparent 0 6px, rgba(1,2,2,.35) 6px 8px); }
+.phase[data-status="done"] .bar > span { background-color: var(--ref); }
+.phase[data-status="failed"] .bar > span, .phase[data-status="cancelled"] .bar > span { background: var(--base); }
+details.log { margin-top: 14px; }
+details.log summary { cursor: pointer; color: var(--text-3); font: 500 11px var(--mono); letter-spacing: 1.6px; text-transform: uppercase; }
+details.log pre { font: 12px/1.55 var(--mono); background: var(--bg); border: 1px solid var(--border); padding: 10px 12px; max-height: 240px; overflow: auto; margin: 8px 0 0; white-space: pre-wrap; color: var(--text-2); }
+.checks { display: grid; gap: 6px; margin-bottom: 14px; }
+.checkrow { display: grid; grid-template-columns: 20px 150px 1fr; gap: 8px; font-size: 12.5px; align-items: start; }
+.checkrow .ic { font-weight: 700; } .checkrow .ic.ok { color: var(--good); } .checkrow .ic.no { color: var(--bad); }
+.checkrow .msg { color: var(--text-2); word-break: break-word; }
+
+/* ---------- verdict: split brand scoreboard */
+.verdict { display: grid; grid-template-columns: auto 1fr; gap: 24px; align-items: center; padding: 18px; }
+@media (max-width: 760px) { .verdict { grid-template-columns: 1fr; } }
+.tally { display: flex; align-items: stretch; gap: 10px; }
+.tally > div { padding: 12px 18px; min-width: 150px; }
+.tally > div.t-ref { border: 1px solid var(--border); background: linear-gradient(180deg, rgba(61,153,112,.14), transparent); }
+.tally > div.t-rival { border: 1px solid var(--or-border); background: var(--or-bg); border-radius: var(--or-radius); font-family: var(--or-sans); }
+.tally .who { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-2); font-weight: 600; }
+.tally .n { font-size: 40px; font-weight: 600; letter-spacing: -.045em; line-height: 1.05; margin-top: 4px; }
+.tally .t-ref .n { color: var(--ref-ink); }
+.tally .t-rival .n { color: var(--rival); font-weight: 700; letter-spacing: -.03em; }
+.tally .n small { font-size: 12px; font-weight: 500; color: var(--text-3); margin-left: 6px; letter-spacing: 0; }
+.verdict-text { font-size: 14px; color: var(--text-2); }
+.verdict-text strong { color: var(--text); }
+
+/* ---------- metric cards: Concentrate row square/green, OpenRouter row rounded/lime */
+.metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0; border-top: 1px solid var(--border); border-left: 1px solid var(--border); }
+.mcard { background: var(--surface); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 15px 16px 13px; display: flex; flex-direction: column; gap: 10px; }
+.mcard .m-top { display: flex; flex-direction: column; gap: 4px; }
+.mcard .m-label { font-weight: 600; font-size: 14px; letter-spacing: -.025em; }
+.mcard .m-track { font: 500 10px var(--mono); color: var(--text-3); text-transform: uppercase; letter-spacing: 1.6px; white-space: nowrap; }
+.mrow { display: grid; grid-template-columns: 100px 1fr auto; align-items: center; gap: 8px; font-size: 12.5px; }
+.mrow .who { display: flex; align-items: center; gap: 7px; color: var(--text-2); white-space: nowrap; }
+.mrow.rv .who { font-family: var(--or-sans); }
+.mrow .val { font-weight: 600; text-align: right; min-width: 70px; font-family: var(--mono); font-weight: 500; font-size: 12.5px; }
+.mrow.rv .val { font-family: var(--or-mono); }
+.mrow.win .val, .mrow.win .who { color: var(--text); }
+.mrow.win .who::after { content: "▲"; font-size: 8px; margin-left: 2px; color: var(--text-3); }
+.mbar { height: 10px; background: var(--surface-2); position: relative; }
+.mrow.rv .mbar { border-radius: 5px; }
+.mbar > span { position: absolute; left: 0; top: 0; bottom: 0; }
+.mrow.rv .mbar > span { border-radius: 5px; }
+.mfoot { font-size: 12px; color: var(--text-2); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 9px; }
+.sig { font: 500 10px var(--mono); letter-spacing: 1px; text-transform: uppercase; padding: 1px 6px; border: 1px solid currentColor; }
+.sig.yes { color: var(--good); } .sig.no { color: var(--text-3); }
+
+/* ---------- result sections */
+.section-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 16px 18px 0; }
+.section-h h3 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.03em; }
+.section-h .desc { color: var(--text-3); font-size: 12.5px; flex-basis: 100%; }
+.controls { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2); padding: 12px 18px 0; }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legend .swatch-line { width: 18px; height: 2px; }
+.legend .swatch-dash { width: 18px; height: 0; border-top: 2px dashed var(--base); }
+.chart { position: relative; padding: 6px 10px 4px; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--text-3); font-size: 11px; font-family: var(--mono); }
+.chart .ax { stroke: var(--axis); stroke-width: 1; }
+.chart .gr { stroke: var(--grid); stroke-width: 1; }
+.tip { position: absolute; pointer-events: none; background: #0d0e10; border: 1px solid var(--border-strong); padding: 8px 10px; font-size: 12px; min-width: 160px; z-index: 5; display: none; }
+.tip .t-h { font-weight: 600; margin-bottom: 4px; color: var(--text); }
+.tip .t-r { display: flex; align-items: center; gap: 6px; justify-content: space-between; color: var(--text-2); }
+.tip .t-r b { color: var(--text); font-weight: 500; font-family: var(--mono); }
+.two { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0; }
+@media (max-width: 1100px) { .two { grid-template-columns: 1fr; } }
+.tablewrap { overflow-x: auto; padding: 4px 18px 18px; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th { text-align: left; color: var(--text-3); font: 500 10px var(--mono); text-transform: uppercase; letter-spacing: 1.4px; padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { padding: 8px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+td.r, th.r { text-align: right; }
+td.num { font-family: var(--mono); font-size: 12px; }
+td.wrap { white-space: normal; max-width: 520px; color: var(--text-2); font-size: 12px; }
+tr.is-ref td:first-child { box-shadow: inset 3px 0 0 var(--ref); }
+tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); font-family: var(--or-sans); }
+#tablePaired td, #tablePaired th { padding-left: 6px; padding-right: 6px; }
+.mix { padding: 12px 18px 18px; display: grid; gap: 12px; align-content: start; }
+.mix .mix-row .who { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; margin-bottom: 5px; }
+.stack { display: flex; height: 12px; overflow: hidden; gap: 2px; }
+.stack > span { display: block; height: 100%; }
+.mix-legend { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+.empty { padding: 64px 28px; text-align: left; color: var(--text-2); position: relative; overflow: hidden; }
+.empty::before { content: ""; position: absolute; inset: 0; background-image: radial-gradient(rgba(255,255,255,.08) 1px, transparent 1.2px); background-size: 18px 18px; pointer-events: none; }
+.empty h2 { position: relative; color: var(--text); font-size: 28px; margin: 12px 0 8px; letter-spacing: -.04em; font-weight: 600; }
+.empty p { position: relative; margin: 0; max-width: 520px; }
+.skeleton { color: var(--text-3); padding: 24px 18px; font-size: 13px; }
+.fair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; padding: 14px 18px 18px; }
+@media (max-width: 1100px) { .fair { grid-template-columns: 1fr; } }
+.fair h4 { margin: 0 0 4px; font-size: 14px; letter-spacing: -.02em; }
+.fair p { margin: 0 0 8px; }
+.fair .tablewrap { padding-left: 0; padding-right: 0; }
+.billform { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; align-items: end; }
+.billform label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--text-2); }
+.billform label .dot { margin-right: 4px; }
+.billform label.wide { grid-column: 1 / -1; }
+.billform input { padding: 7px 9px; border: 1px solid var(--border); background: var(--bg); font-size: 13px; border-radius: 0; }
+.billform label.rv input { border-radius: 6px; border-color: var(--or-border); background: var(--or-bg); }
+
+/* ---------- quality parity */
+.qgrid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+@media (max-width: 1100px) { .qgrid { grid-template-columns: 1fr; } }
+.q2x2 { padding: 14px 18px 18px; display: grid; gap: 14px; align-content: start; }
+.q2x2 .q-set { border: 1px solid var(--border); padding: 12px; }
+.q2x2 .q-set h5 { margin: 0 0 8px; font-size: 13px; letter-spacing: -.02em; display: flex; gap: 8px; align-items: center; }
+.qbar { display: flex; height: 14px; gap: 2px; }
+.qbar > span { display: block; height: 100%; }
+.qkey { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 7px; font-size: 11.5px; color: var(--text-2); }
+.qkey i { display: inline-block; width: 9px; height: 9px; margin-right: 4px; vertical-align: -1px; }
+.prep { margin-top: 4px; font-size: 12px; color: var(--text-2); }
+.prep pre { font: 11px/1.45 var(--mono); max-height: 120px; overflow: auto; background: var(--bg); border: 1px solid var(--border); padding: 6px 8px; margin: 6px 0 0; white-space: pre-wrap; }
+
+/* ---------- claims: Concentrate column vs OpenRouter column */
+.claims-top { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+.vchip { font: 500 10.5px/1.5 var(--mono); letter-spacing: 1.2px; text-transform: uppercase; padding: 2px 8px; border: 1px solid currentColor; white-space: nowrap; }
+.vchip.holds { color: var(--good); }
+.vchip.partly { color: var(--warn); }
+.vchip.doesnt { color: var(--bad); }
+.vchip.nt { color: var(--text-3); }
+.vchip.info { color: #b9a6ff; }
+.claims { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+@media (max-width: 1060px) { .claims { grid-template-columns: 1fr; } }
+.ccol { display: flex; flex-direction: column; gap: 14px; }
+.ccol-h { display: flex; align-items: center; gap: 10px; padding: 14px 16px; }
+.ccol.ref .ccol-h { border: 1px solid var(--border); background: linear-gradient(90deg, rgba(61,153,112,.16), transparent 70%); }
+.ccol.rival .ccol-h { border: 1px solid var(--or-border); border-radius: var(--or-radius); background: var(--or-bg); font-family: var(--or-sans); }
+.ccol-h .site { margin-left: auto; font: 500 11px var(--mono); color: var(--text-3); }
+.ccol.rival .ccol-h .site { font-family: var(--or-mono); }
+.claim { padding: 18px 18px 16px; }
+.ccol.ref .claim { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--ref); }
+.ccol.rival .claim { background: var(--or-bg); border: 1px solid var(--or-border); border-radius: var(--or-radius); font-family: var(--or-sans); color: var(--or-fg); position: relative; }
+.ccol.rival .claim::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: var(--rival); }
+.claim .q { font-size: 19px; font-weight: 600; letter-spacing: -.035em; line-height: 1.2; margin: 8px 0 12px; }
+.ccol.rival .claim .q { font-weight: 700; letter-spacing: -.025em; }
+.claim.noq .q::before, .claim.noq .q::after { content: none; }
+.claim .q::before { content: "“"; color: var(--text-3); margin-right: 1px; }
+.claim .q::after { content: "”"; color: var(--text-3); margin-left: 1px; }
+.claim .row { display: grid; grid-template-columns: 112px 1fr; gap: 10px; font-size: 13px; padding: 6px 0; border-top: 1px solid var(--grid); }
+.ccol.rival .claim .row { border-color: var(--or-border); }
+.claim .row .k { font: 500 10px/1.8 var(--mono); letter-spacing: 1.4px; text-transform: uppercase; color: var(--text-3); }
+.ccol.rival .claim .row .k { font-family: var(--or-mono); letter-spacing: .06em; color: var(--or-muted); }
+.claim .row .v { color: var(--text-2); }
+.claim .row.found .v { color: var(--text); }
+.claim .ev { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 3px; font-size: 12px; color: var(--text-2); }
+.claim .ev b { color: var(--text-3); font-weight: 500; }
+.claim .src { font: 11px var(--mono); color: var(--text-3); word-break: break-all; }
+.claim-h { display: flex; align-items: center; gap: 8px; }
+
+/* ---------- glossary */
+.callout { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: start; padding: 22px; border: 1px solid var(--border); background: linear-gradient(135deg, rgba(61,153,112,.10), transparent 60%), var(--surface); margin-bottom: 18px; }
+.callout .big { font-size: 26px; font-weight: 600; letter-spacing: -.04em; line-height: 1.1; max-width: 340px; }
+.callout .big em { font-style: italic; color: var(--ref); }
+.callout p { margin: 0 0 8px; color: var(--text-2); }
+@media (max-width: 860px) { .callout { grid-template-columns: 1fr; } }
+.gloss { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 0; border-top: 1px solid var(--border); border-left: 1px solid var(--border); }
+.gcard { background: var(--surface); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 18px; display: flex; flex-direction: column; gap: 8px; }
+.gcard h4 { margin: 0; font-size: 16px; letter-spacing: -.03em; }
+.gcard .kind { font: 500 10px var(--mono); letter-spacing: 1.6px; text-transform: uppercase; color: var(--text-3); }
+.gcard .kind.router { color: var(--ref-ink); }
+.gcard p { margin: 0; font-size: 13px; color: var(--text-2); }
+.gcard .reads { color: var(--text); font-size: 13px; padding-left: 10px; border-left: 2px solid var(--border-strong); }
+.gcard .gw { font-size: 12.5px; color: var(--text-3); }
+.gcard .gw b { color: var(--text-2); font-weight: 600; }
+
+footer.foot { border-top: 1px solid var(--border); margin-top: 72px; padding: 28px 32px 40px; color: var(--text-3); font-size: 12.5px; }
+footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: space-between; padding: 0; }
 </style>
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><h1>Gateway Benchmark</h1><span class="sub">v1</span></div>
-  <div class="vs"><span class="dot ref"></span>Concentrate <span class="muted">vs</span> <span class="dot rival"></span>OpenRouter</div>
+  <div class="brand"><span class="glyph" aria-hidden="true"></span><span class="wm ref">Concentrate</span><span class="x">×</span><span class="or">OpenRouter</span></div>
+  <nav class="navlinks" aria-label="Sections">
+    <a href="#run">Run</a><a href="#main">Results</a><a href="#claims">Claims</a><a href="#explained">Benchmarks explained</a>
+  </nav>
   <div class="spacer"></div>
-  <button class="iconbtn" id="themeBtn" type="button" title="Toggle light/dark">Theme</button>
+  <span class="navtag">gateway-bench · local</span>
 </header>
 
+<section class="hero">
+  <div class="hero-in">
+    <div>
+      <div class="eyebrow">// Gateway benchmark</div>
+      <h1>Every claim.<br>Every request.<br><em>Measured.</em></h1>
+      <p class="lede">Concentrate and OpenRouter on the same model, the same prompts and the same questions. Then every number each one puts on its website, checked against what we measure.</p>
+      <div class="ctas">
+        <a class="cta primary" href="#run">Start a run <span class="arrow">→</span></a>
+        <a class="cta" href="#claims">Check the claims</a>
+      </div>
+    </div>
+    <div class="versus" aria-label="Live catalog numbers">
+      <div class="vs-panel ref">
+        <div class="vs-head"><span class="dot ref"></span><span class="wm ref">Concentrate</span></div>
+        <div class="vs-stats">
+          <div class="vs-stat"><div class="n num" id="stRefModels">–</div><div class="l">models</div></div>
+          <div class="vs-stat"><div class="n num" id="stRefProv">–</div><div class="l">providers</div></div>
+        </div>
+        <div class="vs-claim">Claims <b id="stRefHold">–</b> · “No fees. Zero markup.”</div>
+      </div>
+      <div class="vs-mid">VS</div>
+      <div class="vs-panel rival">
+        <div class="vs-head"><span class="dot rival"></span><span class="wm rival">OpenRouter</span></div>
+        <div class="vs-stats">
+          <div class="vs-stat"><div class="n num" id="stOrModels">–</div><div class="l">Models</div></div>
+          <div class="vs-stat"><div class="n num" id="stOrProv">–</div><div class="l">Providers</div></div>
+        </div>
+        <div class="vs-claim">Claims <b id="stOrHold">–</b> · “500+ models, 80+ providers”</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="band" id="run">
+  <div class="band-h"><div><div class="eyebrow">01 // Head to head</div><h2>Same model. <em>Two gateways.</em></h2>
+    <p>Pin a model and a provider, then send identical traffic through both. Speed, price, quality and load, with the statistics to tell a real gap from noise.</p></div></div>
 <div class="layout">
   <aside class="sidebar">
     <section class="card" aria-labelledby="newrun-h">
@@ -276,20 +466,20 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
           <select id="modelSel" class="full"><option value="">Loading models…</option></select>
           <div class="hidden" id="cheapRow"><div class="small muted" style="margin-top:6px">Cheapest on both gateways (blended $/1M, 4:1 in:out):</div><div class="cheap" id="cheapChips"></div></div>
           <input type="text" id="modelCustom" class="full hidden" placeholder="author/model, e.g. deepseek/deepseek-chat" spellcheck="false">
-          <div class="hidden" id="refRow" style="margin-top:10px">
+          <div class="hidden" id="refRow" style="margin-top:12px">
             <label for="refModel" class="lbl">Concentrate's name for this model</label>
             <input type="text" id="refModel" class="full" style="margin-top:0" list="refModelList" spellcheck="false">
             <datalist id="refModelList"></datalist>
             <div class="small muted" id="refHelp" style="margin-top:4px">Filled in from Concentrate's model list (its IDs and aliases, e.g. claude-opus-5-5). The pre-run check confirms it.</div>
           </div>
-          <label for="upSel" style="margin-top:10px">Served by</label>
+          <label for="upSel" style="margin-top:12px">Served by</label>
           <select id="upSel" class="full"><option value="">Any provider (each gateway decides)</option></select>
-          <div class="hidden" id="directRow" style="margin-top:10px">
+          <div class="hidden" id="directRow" style="margin-top:12px">
             <label for="directId" class="lbl">Model ID for the direct call (no gateway)</label>
             <input type="text" id="directId" class="full" style="margin-top:0" spellcheck="false">
             <div style="margin-top:6px"><span class="badge" id="directKey"></span></div>
           </div>
-          <div class="small muted" id="modelHelp" style="margin-top:6px">Used for Speed &amp; fees and Load. In Routing quality each router picks its own model.</div>
+          <div class="small muted" id="modelHelp" style="margin-top:6px">Used for Speed &amp; fees, Quality parity and Load. In Routing quality each router picks its own model.</div>
           <div id="modelNote"></div>
         </div>
 
@@ -312,6 +502,16 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
               <div class="inline"><label for="reqs">Requests per size</label><input type="number" id="reqs" min="1" max="5000" value="20"></div>
               <div class="inline"><label for="warm">Warm-up (discarded)</label><input type="number" id="warm" min="0" max="200" value="3"></div>
               <label class="check"><input type="checkbox" id="incBase" checked> Also call the provider directly (shows added delay)</label>
+            </div>
+          </div>
+
+          <div class="test" id="tQ" data-off="true">
+            <label class="test-h"><input type="checkbox" id="cQ">
+              <span><span class="t-name">Quality parity</span><span class="t-new">NEW</span><br><span class="t-desc">Same model, same exam questions, both gateways. Checks neither one makes the model dumber, and checks OpenRouter's published GPQA score.</span></span></label>
+            <div class="test-b">
+              <div><span class="lbl">Question sets</span><div class="chips" id="qsChips"></div></div>
+              <div class="inline"><label for="qItems">Questions per set (max)</label><input type="number" id="qItems" min="1" max="20000" value="198"></div>
+              <div class="prep" id="qPrep"></div>
             </div>
           </div>
 
@@ -340,7 +540,7 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
         </div>
 
         <div class="estimate"><span>Estimated calls</span><b class="num" id="estimate">–</b></div>
-        <button class="btn" id="runBtn" type="button">Run benchmark</button>
+        <button class="btn" id="runBtn" type="button">Run benchmark →</button>
         <div class="formmsg" id="formMsg" role="alert"></div>
       </div>
     </section>
@@ -353,8 +553,9 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
 
   <main class="main" id="main">
     <section class="card empty" id="emptyState">
-      <h2>No run selected</h2>
-      <p>Start a <b>Demo</b> run to see how the comparison works with mock gateways (about 30 seconds, no API keys). Switch to <b>Live</b> once your keys are in <code>.env</code>.</p>
+      <div class="eyebrow">// No run selected</div>
+      <h2>Pick a past run, or start one.</h2>
+      <p>A <b>Demo</b> run uses mock gateways on your machine (about 30 seconds, no keys) so you can see how everything reads. <b>Live</b> uses the keys in <code>.env</code>.</p>
     </section>
 
     <section class="card hidden" id="runCard">
@@ -375,7 +576,7 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
       </div>
     </section>
 
-    <div id="results" class="hidden" style="display:flex;flex-direction:column;gap:16px">
+    <div id="results" class="hidden" style="display:flex;flex-direction:column;gap:20px">
       <section class="card" id="verdictCard">
         <div class="verdict">
           <div class="tally" id="tally"></div>
@@ -391,6 +592,18 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
 
       <div class="metrics" id="metrics"></div>
 
+      <section class="card hidden" id="qparitySec">
+        <div class="section-h"><h3>Quality parity</h3>
+          <div class="controls small muted" id="qModel"></div>
+          <div class="desc">The same model answering the same questions through each gateway. Points are accuracy with 95% intervals; the white diamond is the score OpenRouter publishes for this model. A gateway can't make a model smarter, only dumber, so the thing to look for is a gap.</div></div>
+        <div class="legend" id="qLegend"></div>
+        <div class="qgrid">
+          <div class="chart" id="qChart"></div>
+          <div class="q2x2" id="q2x2"></div>
+        </div>
+        <div class="tablewrap"><table id="tableQ"></table></div>
+      </section>
+
       <section class="card hidden" id="fairSec">
         <div class="section-h"><h3>Fairness checks</h3>
           <div class="desc">Two corrections for things that can make a raw comparison unfair: different amounts of work billed, and requests one side failed.</div></div>
@@ -400,7 +613,7 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
             <p class="small muted">Enter the amount each dashboard charged <b>for this run</b>. Easiest: note your balance before and after, or use keys only for benchmarking. Concentrate doesn't return billed cost per request, so this is the only way to see its real price.</p>
             <div class="billform">
               <label><span><span class="dot ref"></span> Concentrate charged ($)</span><input type="number" step="0.01" min="0" id="billRef" placeholder="from its dashboard"></label>
-              <label><span><span class="dot rival"></span> OpenRouter charged ($)</span><input type="number" step="0.01" min="0" id="billRival" placeholder=""></label>
+              <label class="rv"><span><span class="dot rival"></span> OpenRouter charged ($)</span><input type="number" step="0.01" min="0" id="billRival" placeholder=""></label>
               <label class="wide">Note (optional)<input type="text" id="billNote" placeholder="e.g. balance 100.00 → 40.00, 14:41–15:07"></label>
               <span><button class="btn secondary" id="billSave" type="button">Save and recalculate</button> <span class="small muted" id="billMsg"></span></span>
             </div>
@@ -422,7 +635,7 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
             <select id="cdfShape" aria-label="Prompt size"></select>
             <select id="cdfStream" aria-label="Response mode"></select>
           </div>
-          <div class="desc">Share of requests that got their first token within a given time. Further left is faster; the gap at the top is the slow tail.<span id="latModel"></span></div>
+          <div class="desc">Share of requests that got their first token within a given time. Further left is faster; the gap at the top is the slow tail. Markers sit at the median.<span id="latModel"></span></div>
         </div>
         <div class="legend" id="cdfLegend"></div>
         <div class="chart" id="cdfChart"></div>
@@ -431,7 +644,7 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
 
       <section class="card hidden" id="qualitySec">
         <div class="section-h">
-          <h3>Accuracy vs cost</h3>
+          <h3>Routing: accuracy vs cost</h3>
           <div class="controls"><select id="fWorkload" aria-label="Question set"></select></div>
           <div class="desc">Up and to the left is better: more right answers for less money. Whiskers are 95% confidence intervals.</div>
         </div>
@@ -455,6 +668,34 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); }
     </div>
   </main>
 </div>
+</div>
+
+<div class="band" id="claims">
+  <div class="band-h"><div><div class="eyebrow">02 // Claims check</div><h2>What they say. <em>What we measured.</em></h2>
+    <p>Every claim from each homepage, model page and benchmark page, with what it means in plain words, how we test it, and a verdict. Live: counts come from each API with your keys, measurements from your latest runs.</p></div>
+    <span class="spacer"></span><button class="btn secondary" id="claimsRefresh" type="button">Re-check now</button></div>
+  <div class="claims-top" id="claimsTop"><span class="skeleton" style="padding:0">Checking…</span></div>
+  <div class="claims">
+    <div class="ccol ref"><div class="ccol-h"><span class="dot ref"></span><span class="wm ref" style="font-size:16px">Concentrate says</span><span class="site">concentrate.ai</span></div><div class="ccol" id="claimsRef"></div></div>
+    <div class="ccol rival"><div class="ccol-h"><span class="dot rival"></span><span class="wm rival" style="font-size:16px">OpenRouter says</span><span class="site">openrouter.ai</span></div><div class="ccol" id="claimsRival"></div></div>
+  </div>
+</div>
+
+<div class="band" id="explained">
+  <div class="band-h"><div><div class="eyebrow">03 // Benchmarks explained</div><h2>SWE-bench, GPQA and friends, <em>decoded.</em></h2>
+    <p>What each number on these sites actually measures, how to read it, and whether a gateway can change it.</p></div></div>
+  <div class="callout">
+    <div class="big">Model benchmarks are <em>not</em> gateway benchmarks.</div>
+    <div>
+      <p>SWE-bench, GPQA, the Intelligence Index: these score a <b>model</b>. Claude Opus 5.5 gets the same SWE-bench score whether you call it through Concentrate, OpenRouter or Anthropic directly, as long as the same model is actually served with the same settings.</p>
+      <p>A gateway can only <b>lose</b> points: route you to a different or quantized provider, drop parameters, cut off long answers. So the gateway test is <b>parity</b>: same model, same questions, both gateways, and the scores should match each other and the published number. That's the Quality parity test above.</p>
+      <p class="small muted" style="margin:0">What a gateway does own: added latency, price and fees, reliability under load, and (for auto-routers) which model it picks. Those are the Speed &amp; fees, Load and Routing quality tests.</p>
+    </div>
+  </div>
+  <div class="gloss" id="gloss"></div>
+</div>
+
+<footer class="foot"><div class="band"><span>gateway-bench · runs locally, keys stay in <code>.env</code></span><span>Not affiliated with or endorsed by OpenRouter. Brand styling for comparison only; no logos used.</span></div></footer>
 
 <script>
 const $ = (s, el = document) => el.querySelector(s);
@@ -462,21 +703,6 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const NAMES = { concentrate: "Concentrate", openrouter: "OpenRouter" };
 const nice = s => NAMES[s] || s;
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-
-/* ---------------- theme */
-(function () {
-  let t = null;
-  try { t = localStorage.getItem("gb-theme"); } catch (e) {}
-  if (t) document.documentElement.dataset.theme = t;
-  $("#themeBtn").addEventListener("click", () => {
-    const cur = document.documentElement.dataset.theme ||
-      (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-    const next = cur === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    try { localStorage.setItem("gb-theme", next); } catch (e) {}
-    if (state.summary) renderCharts();
-  });
-})();
 
 /* ---------------- formatting */
 function fmt(v, unit) {
@@ -542,7 +768,7 @@ function bindChips(root) {
   });
   root.addEventListener("keydown", e => { if ((e.key === " " || e.key === "Enter") && e.target.classList.contains("chip")) { e.preventDefault(); e.target.click(); } });
 }
-["#shapeChips", "#streamChips", "#wlChips"].forEach(s => bindChips($(s)));
+["#shapeChips", "#streamChips", "#wlChips", "#qsChips"].forEach(s => bindChips($(s)));
 
 function renderForm() {
   const m = state.config.modes[state.mode];
@@ -597,6 +823,7 @@ function readForm() {
     mode: state.mode,
     label: $("#runLabel").value.trim(),
     track_a: $("#cA").checked, track_b: $("#cB").checked, load: $("#cL").checked,
+    quality: $("#cQ").checked, quality_sets: pressed("#qsChips").map(c => c.dataset.qs), quality_items: +$("#qItems").value || 1,
     include_baseline: $("#incBase").checked,
     shapes: pressed("#shapeChips").map(c => c.dataset.shape),
     stream_modes: pressed("#streamChips").map(c => c.dataset.stream === "true"),
@@ -618,7 +845,8 @@ function readForm() {
 function problems(o) {
   const m = state.config.modes[state.mode];
   const out = [];
-  if (!o.track_a && !o.track_b && !o.load) out.push("Pick at least one test.");
+  if (!o.track_a && !o.track_b && !o.load && !o.quality) out.push("Pick at least one test.");
+  if (o.quality && !o.quality_sets.length) out.push("Quality parity needs a downloaded question set.");
   if (o.track_a && (!o.shapes.length || !o.stream_modes.length)) out.push("Speed & fees needs a prompt size and a response mode.");
   if (o.track_b && !o.workloads.length) out.push("Routing quality needs a question set (prepare more with gbench prepare-data).");
   if (o.load && !o.rates.length) out.push("Load test needs at least one step.");
@@ -644,16 +872,17 @@ function updateEstimate() {
     n += items * cfgs;
   }
   if (o.load) n += 2 * o.rates.reduce((a, r) => a + r * o.step_duration_s, 0);
+  if (o.quality) n += 2 * $$("#qsChips .chip[aria-pressed='true']").reduce((a, c) => a + Math.min(+c.dataset.items, o.quality_items), 0);
   $("#estimate").textContent = "≈ " + Math.round(n).toLocaleString();
   const p = problems(o);
   $("#runBtn").disabled = p.length > 0 || isActive();
   $("#formMsg").textContent = isActive() ? "A run is in progress." : p[0] || "";
 }
 
-$$(".seg button").forEach(b => b.addEventListener("click", () => { state.mode = b.dataset.mode; renderForm(); loadCatalog(); loadRefModels(); }));
-[["#cA", "#tA"], ["#cB", "#tB"], ["#cL", "#tL"]].forEach(([c, t]) =>
+$$(".seg button").forEach(b => b.addEventListener("click", () => { state.mode = b.dataset.mode; renderForm(); loadCatalog(); loadRefModels(); loadQualitySets(); }));
+[["#cA", "#tA"], ["#cB", "#tB"], ["#cL", "#tL"], ["#cQ", "#tQ"]].forEach(([c, t]) =>
   $(c).addEventListener("change", () => { $(t).dataset.off = String(!$(c).checked); updateEstimate(); }));
-$$("#reqs, #warm, #maxItems, #rates, #stepDur, #incBase, #incModels").forEach(el => el.addEventListener("input", updateEstimate));
+$$("#reqs, #warm, #maxItems, #rates, #stepDur, #incBase, #incModels, #qItems").forEach(el => el.addEventListener("input", updateEstimate));
 
 $("#runBtn").addEventListener("click", async () => {
   const o = readForm();
@@ -876,7 +1105,7 @@ async function loadRefModels() {
 const isActive = () => state.run && ["queued", "running"].includes(state.run.status);
 function runTitle(r) {
   const o = r.options || {};
-  const tests = [o.track_a && "speed", o.track_b && "quality", o.load && "load"].filter(Boolean).join(" + ");
+  const tests = [o.track_a && "speed", o.quality && "parity", o.track_b && "routing", o.load && "load"].filter(Boolean).join(" + ");
   return o.label || tests || r.id;
 }
 async function loadHistory() {
@@ -1001,7 +1230,7 @@ async function loadResults() {
 function renderVerdict() {
   const s = state.summary, sc = s.score, R = s.ref, V = s.rival;
   const decided = sc[R] + sc[V];
-  $("#tally").innerHTML = [R, V].map(k => `<div><div class="who"><span class="dot ${k === R ? "ref" : "rival"}"></span>${nice(k)}</div>
+  $("#tally").innerHTML = [R, V].map(k => `<div class="${k === R ? "t-ref" : "t-rival"}"><div class="who"><span class="dot ${k === R ? "ref" : "rival"}"></span>${nice(k)}</div>
     <div class="n num">${sc[k]}<small>of ${sc.total} leads</small></div></div>`).join("");
   const sigR = sc["significant_" + R], sigV = sc["significant_" + V];
   let lead;
@@ -1015,7 +1244,7 @@ function renderVerdict() {
     ${s.mode === "demo" ? "<br><span class='muted'>Demo data, not real results.</span>" : ""}`;
 }
 
-const TRACK = { A: "Speed & fees", B: "Routing quality", load: "Load", billing: "Actual billing" };
+const TRACK = { A: "Speed & fees", B: "Routing quality", Q: "Quality parity", load: "Load", billing: "Actual billing" };
 function renderMetrics() {
   const s = state.summary, R = s.ref, V = s.rival, wrap = $("#metrics");
   wrap.innerHTML = "";
@@ -1025,7 +1254,7 @@ function renderMetrics() {
     const max = Math.max(...vals.map(Math.abs), 1e-12);
     const row = (k, v) => {
       const w = v == null ? 0 : Math.max(2, Math.abs(v) / max * 100);
-      return `<div class="mrow ${m.winner === k ? "win" : ""}"><span class="who"><span class="dot ${k === R ? "ref" : "rival"}"></span>${nice(k)}</span>
+      return `<div class="mrow ${k === R ? "rf" : "rv"} ${m.winner === k ? "win" : ""}"><span class="who"><span class="dot ${k === R ? "ref" : "rival"}"></span>${nice(k)}</span>
         <div class="mbar"><span style="width:${w}%;background:${k === R ? "var(--ref)" : "var(--rival)"}"></span></div>
         <span class="val num">${fmt(v, m.unit)}</span></div>`;
     };
@@ -1038,7 +1267,7 @@ function renderMetrics() {
       const pct = (a == null || b == null || !loser) ? null : Math.abs(a - b) / Math.abs(loser) * 100;
       const d = pct == null ? "" : pct.toFixed(pct < 10 ? 1 : 0) + "% ";
       foot = `<b>${nice(m.winner)}</b> ${d}${better}`;
-      if (m.key === "overhead_p50" || m.key === "accuracy" || m.key === "success_a") {
+      if (m.key === "overhead_p50" || m.key === "accuracy" || m.key === "accuracy_q" || m.key === "success_a") {
         const diff = Math.abs(a - b);
         foot = `<b>${nice(m.winner)}</b> by ${fmt(diff, m.unit === "%" ? "%" : m.unit).replace("%", m.unit === "%" ? " pts" : "")}`;
       }
@@ -1089,10 +1318,10 @@ function ticks(lo, hi, n = 5) {
   return out;
 }
 function legend(el, items) {
-  el.innerHTML = items.map(i => i.dash
+  el.innerHTML = items.map(i => i.mark ? `<span>${markSvg(i.mark, i.color)}${esc(i.label)}</span>` : i.dash
     ? `<span><span class="swatch-dash"></span>${esc(i.label)}</span>`
     : i.square ? `<span><svg width="10" height="10"><rect width="10" height="10" rx="2" fill="${i.color}"/></svg>${esc(i.label)}</span>`
-      : `<span><span class="swatch-line" style="background:${i.color}"></span>${esc(i.label)}</span>`).join("");
+      : `<span><span class="swatch-line" style="background:${i.color}"></span>${markSvg(markOf(i.who), i.color)}${esc(i.label)}</span>`).join("");
 }
 function tipAt(chartEl, html, x, y) {
   let t = chartEl.querySelector(".tip");
@@ -1109,6 +1338,8 @@ function renderCharts() {
   $("#latencySec").classList.toggle("hidden", !s.cdf);
   $("#qualitySec").classList.toggle("hidden", !s.frontier);
   $("#loadSec").classList.toggle("hidden", !s.load);
+  $("#qparitySec").classList.toggle("hidden", !s.quality);
+  if (s.quality) drawQuality();
   if (s.cdf) drawCdf();
   if (s.frontier) { drawFrontier(); drawMix(); }
   if (s.load) drawLoad();
@@ -1118,7 +1349,7 @@ function drawCdf() {
   const s = state.summary, key = `${$("#cdfShape").value}|${$("#cdfStream").value}`;
   const series = s.cdf[key] || {};
   const order = Object.keys(series).sort((a, b) => (a === s.ref ? -1 : a === s.rival ? 0 : 1) - (b === s.ref ? -1 : b === s.rival ? 0 : 1));
-  legend($("#cdfLegend"), order.map(n => n === s.ref || n === s.rival ? { label: nice(n), color: colorOf(n) } : { label: `${n} (direct, no gateway)`, dash: true }));
+  legend($("#cdfLegend"), order.map(n => n === s.ref || n === s.rival ? { label: nice(n), color: colorOf(n), who: n } : { label: `${n} (direct, no gateway)`, dash: true }));
   const H = 300, m = { l: 48, r: 16, t: 12, b: 36 };
   const all = order.flatMap(n => series[n].map(p => p[0]));
   if (!all.length) { $("#cdfChart").innerHTML = `<div class="skeleton">No successful requests in this cell.</div>`; return; }
@@ -1136,7 +1367,14 @@ function drawCdf() {
     const pts = series[n];
     const d = pts.map((p, i) => `${i ? "L" : "M"}${X(lx(p[0])).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("");
     const isB = n !== s.ref && n !== s.rival;
-    g += `<path d="${d}" fill="none" stroke="${colorOf(n)}" stroke-width="${isB ? 1.5 : 2}" ${isB ? 'stroke-dasharray="5 4"' : ""} stroke-linejoin="round"/>`;
+    g += `<path d="${d}" fill="none" stroke="${colorOf(n)}" stroke-width="${isB ? 1.5 : 2.25}" ${isB ? 'stroke-dasharray="5 4"' : ""} stroke-linejoin="round"/>`;
+    if (!isB && pts.length) {
+      const mi = pts.findIndex(p => p[1] >= .5), mp = pts[mi < 0 ? pts.length - 1 : mi];
+      g += markAt(markOf(n), X(lx(mp[0])), Y(mp[1]), colorOf(n), 5);
+      const last = pts[pts.length - 1];
+      const lyI = order.filter(x => x === s.ref || x === s.rival).indexOf(n);
+      g += `<text x="${Math.min(X(lx(last[0])) + 6, W - m.r)}" y="${Y(1) + 14 + lyI * 13}" text-anchor="${X(lx(last[0])) > W - 120 ? "end" : "start"}" style="fill:${colorOf(n)};font-family:${n === s.rival ? "var(--or-sans)" : "var(--sans)"};font-weight:600">${esc(nice(n))}</text>`;
+    }
   });
   g += `<line id="cdfCross" class="ax hidden" y1="${m.t}" y2="${H - m.b}" stroke-dasharray="2 3"/>`;
   g += `<rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent" id="cdfHit"/>`;
@@ -1161,8 +1399,8 @@ function drawCdf() {
 function drawFrontier() {
   const s = state.summary, wl = $("#fWorkload").value;
   const pts = s.frontier.filter(f => f.workload === wl && f.cost_per_1k_usd != null && f.accuracy != null);
-  legend($("#frontLegend"), [{ label: nice(s.ref), color: colorOf(s.ref), square: true }, { label: nice(s.rival), color: colorOf(s.rival), square: true },
-    { label: "Single model, every question", color: colorOf("x"), square: true }, { label: "Best trade-offs (Pareto)", dash: true }]);
+  legend($("#frontLegend"), [{ label: nice(s.ref), color: colorOf(s.ref), mark: "square" }, { label: nice(s.rival), color: colorOf(s.rival), mark: "circle" },
+    { label: "Single model, every question", color: colorOf("x"), mark: "diamond" }, { label: "Best trade-offs (Pareto)", dash: true }]);
   const W = 520, H = 340, m = { l: 52, r: 20, t: 16, b: 40 };
   if (!pts.length) { $("#frontChart").innerHTML = `<div class="skeleton">No cost data for this set.</div>`; return; }
   const xs = pts.map(p => p.cost_per_1k_usd), ys = pts.flatMap(p => [p.acc_lo ?? p.accuracy, p.acc_hi ?? p.accuracy]);
@@ -1181,8 +1419,7 @@ function drawFrontier() {
   ordered.forEach((p, i) => {
     const c = colorOf(p.label), cx = X(p.cost_per_1k_usd), cy = Y(p.accuracy), router = p.role === "router";
     if (p.acc_lo != null && p.acc_hi != null) g += `<line x1="${cx}" x2="${cx}" y1="${Y(p.acc_lo)}" y2="${Y(p.acc_hi)}" stroke="${c}" stroke-width="1.5" opacity=".55"/>`;
-    g += router ? `<circle cx="${cx}" cy="${cy}" r="6.5" fill="${c}" stroke="var(--surface)" stroke-width="2"/>`
-      : `<rect x="${cx - 5}" y="${cy - 5}" width="10" height="10" rx="2" fill="${c}" stroke="var(--surface)" stroke-width="2"/>`;
+    g += router ? markAt(markOf(p.label), cx, cy, c, 7) : markAt("diamond", cx, cy, c, 5.5);
     const lab = router ? nice(p.label) : p.label.replace("direct-", "");
     const anchor = cx > W - 140 ? "end" : "start", dx = anchor === "end" ? -10 : 10;
     g += `<text x="${cx + dx}" y="${cy - 8}" text-anchor="${anchor}" style="fill:var(--text-2);font-weight:${router ? 600 : 400}">${esc(lab)}</text>`;
@@ -1222,7 +1459,7 @@ function drawMix() {
 function drawLoad() {
   const s = state.summary, rows = s.load;
   const sys = [s.ref, s.rival].filter(n => rows.some(r => r.system === n));
-  legend($("#loadLegend"), [...sys.map(n => ({ label: nice(n), color: colorOf(n) })), { label: `Target: p99 under ${fmt(s.load_slo_ms, "ms")}`, dash: true }]);
+  legend($("#loadLegend"), [...sys.map(n => ({ label: nice(n), color: colorOf(n), who: n })), { label: `Target: p99 under ${fmt(s.load_slo_ms, "ms")}`, dash: true }]);
   const H = 280, m = { l: 56, r: 20, t: 14, b: 40 };
   const rates = [...new Set(rows.map(r => r.target_rps))].sort((a, b) => a - b);
   const yv = rows.map(r => r.ttft_p99_ms).filter(v => v != null).concat([s.load_slo_ms]);
@@ -1238,7 +1475,7 @@ function drawLoad() {
     const pts = rates.map((r, i) => { const row = rows.find(x => x.system === n && x.target_rps === r); return row && row.ttft_p99_ms != null ? [i, row] : null; }).filter(Boolean);
     g += `<path d="${pts.map(([i, row], k) => `${k ? "L" : "M"}${X(i)},${Y(row.ttft_p99_ms)}`).join("")}" fill="none" stroke="${colorOf(n)}" stroke-width="2"/>`;
     pts.forEach(([i, row]) => {
-      g += `<circle cx="${X(i)}" cy="${Y(row.ttft_p99_ms)}" r="4.5" fill="${row.meets_slo ? colorOf(n) : "var(--surface)"}" stroke="${colorOf(n)}" stroke-width="2"/>`;
+      g += markAt(markOf(n), X(i), Y(row.ttft_p99_ms), colorOf(n), 5, !row.meets_slo);
       hits.push(row); g += `<circle class="hit" data-i="${hits.length - 1}" cx="${X(i)}" cy="${Y(row.ttft_p99_ms)}" r="13" fill="transparent"/>`;
     });
   });
@@ -1320,7 +1557,7 @@ function renderErrors() {
   const errs = (state.summary.errors || []);
   $("#errorsSec").classList.toggle("hidden", !errs.length);
   if (!errs.length) return;
-  const T = { A: "Speed & fees", B: "Routing quality", load: "Load" };
+  const T = TRACK;
   table($("#tableErr"), [
     { h: "Test", f: e => esc(T[e.track] || e.track) },
     { h: "System", f: e => esc(nice(e.system)) },
@@ -1391,11 +1628,174 @@ function renderTables() {
   renderForm();
   loadCatalog();
   loadRefModels();
+  loadQualitySets();
+  loadClaims();
   await loadHistory();
   const m = location.hash.match(/run=([\w-]+)/);
   if (m) selectRun(m[1]);
 })();
 let resizeT; addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => state.summary && renderCharts(), 150); });
+
+/* ---------------- brand marks: square = Concentrate, circle = OpenRouter, diamond = anything else */
+const markOf = n => n === "concentrate" ? "square" : n === "openrouter" ? "circle" : "diamond";
+function markAt(kind, x, y, color, r = 5, hollow = false) {
+  const fill = hollow ? "var(--bg)" : color, st = `stroke="${hollow ? color : "var(--bg)"}" stroke-width="${hollow ? 2 : 1.5}"`;
+  if (kind === "square") return `<rect x="${x - r}" y="${y - r}" width="${2 * r}" height="${2 * r}" fill="${fill}" ${st}/>`;
+  if (kind === "circle") return `<circle cx="${x}" cy="${y}" r="${r}" fill="${fill}" ${st}/>`;
+  return `<rect x="${x - r}" y="${y - r}" width="${2 * r}" height="${2 * r}" fill="${fill}" ${st} transform="rotate(45 ${x} ${y})"/>`;
+}
+function markSvg(kind, color) {
+  if (!kind) return "";
+  return `<svg width="12" height="12" viewBox="0 0 12 12" style="flex:none">${markAt(kind, 6, 6, color, kind === "diamond" ? 3.6 : 4.5)}</svg>`;
+}
+
+/* ---------------- quality parity: form */
+const qstate = { sets: [], poll: null };
+async function loadQualitySets() {
+  let r;
+  try { r = await api(`/api/quality/sets?mode=${state.mode}`); } catch (e) { $("#qPrep").textContent = e.message; return; }
+  qstate.info = r;
+  const keep = new Set($$("#qsChips .chip[aria-pressed='true']").map(c => c.dataset.qs));
+  const first = !$("#qsChips").children.length;
+  const qc = $("#qsChips"); qc.innerHTML = "";
+  r.sets.forEach(s => qc.appendChild(chip(s.ready ? `${s.label} · ${s.count.toLocaleString()}` : `${s.label} · not downloaded`,
+    { qs: s.name, items: s.count }, s.ready && (first || keep.has(s.name) || !keep.size), !s.ready)));
+  const missing = r.sets.filter(s => !s.ready);
+  let html = "";
+  if (missing.length && state.mode === "live") {
+    if (!r.datasets_lib) html += `<div class="note">To download the question sets, install the data extra: <code>pip install -e '.[data]'</code>, then restart <code>gbench ui</code>.</div>`;
+    else html += `<button class="btn secondary" id="qDl" type="button" ${r.prepare.running ? "disabled" : ""}>${r.prepare.running ? "Downloading…" : "Download " + missing.map(s => s.label).join(", ")}</button>`;
+    if (missing.some(s => s.gated) && !r.hf_token) html += `<div class="note">GPQA is gated: accept its terms at <a href="https://huggingface.co/datasets/Idavidrein/gpqa" target="_blank" rel="noopener">huggingface.co/datasets/Idavidrein/gpqa</a>, add <code>HF_TOKEN</code> to .env and restart.</div>`;
+  }
+  if (r.prepare.log && r.prepare.log.length) html += `<pre>${esc(r.prepare.log.join("\n"))}</pre>`;
+  if (r.max_tokens) html += `<div class="small muted" style="margin-top:6px">Up to ${r.max_tokens.toLocaleString()} output tokens per answer, so reasoning isn't cut off. Graded automatically: letter or number match.</div>`;
+  $("#qPrep").innerHTML = html;
+  const dl = $("#qDl");
+  if (dl) dl.addEventListener("click", async () => {
+    dl.disabled = true; dl.textContent = "Downloading…";
+    try { await api("/api/quality/prepare", { method: "POST", body: JSON.stringify({ sets: missing.map(s => s.name) }) }); } catch (e) { $("#qPrep").insertAdjacentHTML("beforeend", `<div class="formmsg">${esc(e.message)}</div>`); }
+    clearInterval(qstate.poll);
+    qstate.poll = setInterval(async () => { await loadQualitySets(); if (!qstate.info.prepare.running) clearInterval(qstate.poll); }, 1500);
+  });
+  updateEstimate();
+}
+
+/* ---------------- quality parity: results */
+function drawQuality() {
+  const s = state.summary, q = s.quality, R = s.ref, V = s.rival;
+  const sets = (q.sets || []).filter(x => x.n);
+  const label = n => ({ gpqa_diamond: "GPQA Diamond", mmlu_pro: "MMLU-Pro", gsm8k: "GSM8K", "mock-math": "Mock math" }[n] || n);
+  const mi = s.models || {};
+  $("#qModel").innerHTML = mi.model ? `Model <code>${esc(mi.model)}</code>${mi.upstream ? ` via ${esc(mi.upstream)}` : ""}` : "";
+  legend($("#qLegend"), [{ label: nice(R), color: colorOf(R), mark: "square" }, { label: nice(V), color: colorOf(V), mark: "circle" },
+    { label: "OpenRouter's published score (± spread)", color: "#ffffff", mark: "diamond" }]);
+  const el = $("#qChart");
+  if (!sets.length) { el.innerHTML = `<div class="skeleton">No question was answered by both gateways.</div>`; $("#q2x2").innerHTML = ""; $("#tableQ").innerHTML = ""; return; }
+  const W = 560, rowH = 64, m = { l: 112, r: 24, t: 14, b: 38 }, H = m.t + m.b + rowH * sets.length;
+  const vals = sets.flatMap(x => [x.ci[R][0], x.ci[V][0], x.published ? x.published.accuracy - (x.published.stddev || 0) : 100]).filter(v => v != null);
+  const x0 = Math.max(0, Math.floor((Math.min(...vals) - 4) / 5) * 5), x1 = 100;
+  const X = scale(x0, x1, m.l, W - m.r);
+  let g = "";
+  ticks(x0, x1, 5).forEach(v => g += `<line class="gr" x1="${X(v)}" x2="${X(v)}" y1="${m.t}" y2="${H - m.b}"/><text x="${X(v)}" y="${H - m.b + 16}" text-anchor="middle">${v}%</text>`);
+  g += `<text x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">accuracy (95% interval)</text>`;
+  const hits = [];
+  sets.forEach((x, i) => {
+    const yc = m.t + rowH * i + rowH / 2;
+    g += `<text x="${m.l - 12}" y="${yc + 4}" text-anchor="end" style="fill:var(--text);font-family:var(--sans);font-size:12.5px;font-weight:600">${esc(label(x.set))}</text>`;
+    g += `<text x="${m.l - 12}" y="${yc + 18}" text-anchor="end">${x.n} q</text>`;
+    if (i) g += `<line class="gr" x1="${m.l - 100}" x2="${W - m.r}" y1="${m.t + rowH * i}" y2="${m.t + rowH * i}"/>`;
+    if (x.published) {
+      const p = x.published, sd = p.stddev || 0;
+      if (sd) g += `<line x1="${X(p.accuracy - sd)}" x2="${X(Math.min(100, p.accuracy + sd))}" y1="${yc}" y2="${yc}" stroke="#fff" stroke-width="3" opacity=".5"/>`;
+      g += `<line x1="${X(p.accuracy)}" x2="${X(p.accuracy)}" y1="${yc - 20}" y2="${yc + 20}" stroke="#fff" stroke-width="1" stroke-dasharray="2 3" opacity=".6"/>`;
+      g += markAt("diamond", X(p.accuracy), yc, "#ffffff", 4.5);
+    }
+    [[R, -9], [V, 9]].forEach(([k, dy]) => {
+      const [lo, hi] = x.ci[k], a = x.acc[k];
+      g += `<line x1="${X(lo)}" x2="${X(hi)}" y1="${yc + dy}" y2="${yc + dy}" stroke="${colorOf(k)}" stroke-width="2" ${k === V ? 'stroke-linecap="round"' : ""}/>`;
+      g += markAt(markOf(k), X(a), yc + dy, colorOf(k), 5.5);
+      hits.push({ x, k }); g += `<rect class="hit" data-i="${hits.length - 1}" x="${X(lo) - 6}" y="${yc + dy - 8}" width="${X(hi) - X(lo) + 12}" height="16" fill="transparent"/>`;
+    });
+  });
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Accuracy per question set through each gateway">${g}</svg>`;
+  el.querySelectorAll(".hit").forEach(h => {
+    h.addEventListener("mousemove", e => {
+      const { x, k } = hits[+h.dataset.i], r = el.getBoundingClientRect();
+      tipAt(el, `<div class="t-h">${esc(nice(k))} · ${esc(label(x.set))}</div>
+        <div class="t-r">Accuracy <b>${x.acc[k].toFixed(1)}%</b></div>
+        <div class="t-r">95% interval <b>${x.ci[k][0].toFixed(0)}–${x.ci[k][1].toFixed(0)}%</b></div>
+        <div class="t-r">Cost / question <b>${usd(x.cost_q[k])}</b></div>
+        <div class="t-r">Time / question <b>${fmt(x.time_q[k], "ms")}</b></div>
+        ${x.published ? `<div class="t-r">OpenRouter publishes <b>${x.published.accuracy.toFixed(1)}%</b></div>` : ""}`, e.clientX - r.left, e.clientY - r.top);
+    });
+    h.addEventListener("mouseleave", () => tipAt(el, null));
+  });
+
+  const C = { both: "#9aa0a6", r: css("--ref"), v: css("--rival"), none: "#2D2E32" };
+  $("#q2x2").innerHTML = `<div class="lbl" style="margin:0">Question by question</div>` + sets.map(x => {
+    const n = x.n, w = v => (v / n * 100).toFixed(2) + "%";
+    const sig = x.p < 0.05;
+    const verdict = sig ? `<b style="color:var(--warn)">Real gap</b> (p = ${x.p.toFixed(3)}): ${nice(x.only_ref > x.only_rival ? R : V)} got more right.`
+      : `<b>No real difference</b> (p = ${x.p.toFixed(2)}). Disagreements are the model's own run-to-run randomness.`;
+    return `<div class="q-set"><h5>${esc(label(x.set))} <span class="muted small">${n} questions · ${x.agreement.toFixed(0)}% graded the same</span></h5>
+      <div class="qbar"><span style="width:${w(x.both_right)};background:${C.both}" title="both right: ${x.both_right}"></span><span style="width:${w(x.only_ref)};background:${C.r}" title="only ${nice(R)} right: ${x.only_ref}"></span><span style="width:${w(x.only_rival)};background:${C.v};border-radius:0 4px 4px 0" title="only ${nice(V)} right: ${x.only_rival}"></span><span style="width:${w(x.both_wrong)};background:${C.none}" title="both wrong: ${x.both_wrong}"></span></div>
+      <div class="qkey"><span><i style="background:${C.both}"></i>both right ${x.both_right}</span><span><i style="background:${C.r}"></i>only ${nice(R)} ${x.only_ref}</span><span><i style="background:${C.v};border-radius:50%"></i>only ${nice(V)} ${x.only_rival}</span><span><i style="background:${C.none}"></i>both wrong ${x.both_wrong}</span></div>
+      <div class="small" style="margin-top:8px;color:var(--text-2)">${verdict}</div></div>`;
+  }).join("");
+
+  table($("#tableQ"), [
+    { h: "Set", f: x => esc(label(x.set)) },
+    { h: "Both answered", r: 1, f: x => x.n },
+    { h: `${nice(R)} acc`, r: 1, f: x => `${x.acc[R].toFixed(1)}% <span class="muted">(${x.ci[R][0].toFixed(0)}–${x.ci[R][1].toFixed(0)})</span>` },
+    { h: `${nice(V)} acc`, r: 1, f: x => `${x.acc[V].toFixed(1)}% <span class="muted">(${x.ci[V][0].toFixed(0)}–${x.ci[V][1].toFixed(0)})</span>` },
+    { h: "Published (OR)", r: 1, f: x => x.published ? `${x.published.accuracy.toFixed(1)}%${x.published.stddev ? ` ±${x.published.stddev.toFixed(1)}` : ""}` : "–" },
+    { h: "p (McNemar)", r: 1, f: x => x.p.toFixed(3) },
+    { h: `$/q ${nice(R)}`, r: 1, f: x => usd(x.cost_q[R]) },
+    { h: `$/q ${nice(V)}`, r: 1, f: x => usd(x.cost_q[V]) },
+    { h: "Published $/q", r: 1, f: x => x.published && x.published.cost_per_task != null ? usd(x.published.cost_per_task) : "–" },
+    { h: `Time ${nice(R)}`, r: 1, f: x => fmt(x.time_q[R], "ms") },
+    { h: `Time ${nice(V)}`, r: 1, f: x => fmt(x.time_q[V], "ms") },
+    { h: "Out tok", r: 1, f: x => `${Math.round(x.out_tokens[R] || 0)} / ${Math.round(x.out_tokens[V] || 0)}` },
+    { h: "Failed", r: 1, f: x => `${x.failed[R]} / ${x.failed[V]}` },
+  ], sets);
+}
+
+/* ---------------- claims check */
+const VCLS = { "holds": "holds", "partly": "partly", "doesn't hold": "doesnt", "not tested": "nt", "info": "info" };
+const vchip = v => `<span class="vchip ${VCLS[v] || "nt"}">${esc(v)}</span>`;
+async function loadClaims(refresh = false) {
+  $("#claimsTop").innerHTML = `<span class="skeleton" style="padding:0">Checking both sites' APIs and your latest runs…</span>`;
+  let c;
+  try { c = await api("/api/claims" + (refresh ? "?refresh=1" : "")); }
+  catch (e) { $("#claimsTop").innerHTML = `<div class="note">Couldn't run the claims check: ${esc(e.message)}</div>`; return; }
+  state.claims = c;
+  const st = c.stats || {}, n = v => v == null ? "–" : Number(v).toLocaleString();
+  $("#stRefModels").textContent = n(st.ref_models); $("#stRefProv").textContent = n(st.ref_providers);
+  $("#stOrModels").textContent = n(st.or_models); $("#stOrProv").textContent = n(st.or_providers);
+  const tally = who => {
+    const cs = c.claims.filter(x => x.who === who && !["info", "not tested"].includes(x.verdict));
+    return cs.length ? `${cs.filter(x => x.verdict === "holds").length} of ${cs.length} tested hold` : "not tested yet";
+  };
+  $("#stRefHold").textContent = tally("concentrate"); $("#stOrHold").textContent = tally("openrouter");
+  const order = ["holds", "partly", "doesn't hold", "not tested", "info"];
+  $("#claimsTop").innerHTML = order.filter(k => c.counts[k]).map(k => `${vchip(k)} <span class="small muted num">${c.counts[k]}</span>`).join(" &nbsp; ")
+    + `<span class="spacer"></span><span class="small muted">Checked ${esc(ago(c.checked))}${c.runs.speed ? ` · speed data from run <code>${esc(c.runs.speed)}</code>` : " · no live Speed &amp; fees run yet"}${c.runs.quality ? ` · quality from <code>${esc(c.runs.quality)}</code>` : " · no Quality parity run yet"}</span>`;
+  const card = x => `<article class="claim ${x.verdict === "info" ? "noq" : ""}">
+      <div class="claim-h">${vchip(x.verdict)}<span class="spacer"></span><a class="src" href="${esc(x.source)}" target="_blank" rel="noopener">${esc(x.source.replace(/^https?:\/\//, ""))} ↗</a></div>
+      <div class="q">${esc(x.claim)}</div>
+      ${x.means && x.means !== "—" ? `<div class="row"><span class="k">Means</span><span class="v">${esc(x.means)}</span></div>` : ""}
+      <div class="row"><span class="k">How we check</span><span class="v">${esc(x.how)}</span></div>
+      <div class="row found"><span class="k">Found</span><span class="v">${esc(x.found)}
+        ${(x.evidence || []).length ? `<ul class="ev">${x.evidence.map(e => `<li><b>${esc(e.label)}:</b> ${/^https?:/.test(e.value || "") ? `<a href="${esc(e.value)}" target="_blank" rel="noopener">${esc(e.value)}</a>` : esc(e.value)}</li>`).join("")}</ul>` : ""}</span></div>
+    </article>`;
+  $("#claimsRef").innerHTML = c.claims.filter(x => x.who === "concentrate").map(card).join("");
+  $("#claimsRival").innerHTML = c.claims.filter(x => x.who === "openrouter").map(card).join("");
+  $("#gloss").innerHTML = (c.glossary || []).map(g => `<div class="gcard">
+      <span class="kind ${g.kind === "router" ? "router" : ""}">${g.kind === "router" ? "Router benchmark" : "Model benchmark"}</span>
+      <h4>${esc(g.name)}</h4><p>${esc(g.measures)}</p><div class="reads">${esc(g.reads_as)}</div>
+      <div class="gw"><b>Through a gateway:</b> ${esc(g.gateway)}</div></div>`).join("");
+}
+$("#claimsRefresh").addEventListener("click", () => loadClaims(true));
 </script>
 </body>
 </html>

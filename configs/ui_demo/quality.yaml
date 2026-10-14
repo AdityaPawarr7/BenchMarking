@@ -1,0 +1,5 @@
+sets:
+  - {name: mock-math, label: Mock math, path: data/sample/mock.jsonl}
+max_tokens: 64
+concurrency: 16
+repeats: 1

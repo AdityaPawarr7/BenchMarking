@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from ..config import System, fill_pin, load_systems, load_yaml
+from .claims import build_claims, find_published_scores, parse_endpoints, snapshot_scores
 from .summary import build_summary, clean, readable_error
 
 REF, RIVAL, BASELINE = "concentrate", "openrouter", "direct-openai"
@@ -91,6 +92,10 @@ class RunOptions(BaseModel):
     direct_model: str = ""     # id for the direct-provider baseline; empty = derived
     ref_model: str = ""        # Concentrate's own id for the model, when it names it differently
     judge_model: str = ""      # grader for open-ended questions, called through OpenRouter; empty = skip them
+    # Quality parity: same model through both gateways on auto-graded question sets
+    quality: bool = False
+    quality_sets: list[str] = []
+    quality_items: int = Field(50, ge=1, le=20000)
 
 
 class Run:
@@ -233,6 +238,12 @@ async def preflight(run: Run, test: str, checks: list[tuple[System, str, bool]],
         results = await asyncio.gather(*(chat(client, s_, model, [{"role": "user", "content": "Reply with the word OK."}],
                                               max_tokens=8, stream=False, seed=None, temperature=temperature)
                                          for s_, model, _ in checks))
+        # one retry for transient upstream errors (5xx / timeouts), so a single blip doesn't stop a run
+        results = list(results)
+        for i, ((s_, model, _), r) in enumerate(zip(checks, results)):
+            if not r.ok and (r.status is None or r.status >= 500):
+                results[i] = await chat(client, s_, model, [{"role": "user", "content": "Reply with the word OK."}],
+                                        max_tokens=8, stream=False, seed=None, temperature=temperature)
     for (s_, model, required), r in zip(checks, results):
         entry = {"test": test, "system": s_.name, "model": model, "ok": r.ok, "status": r.status,
                  "ms": round(r.e2e_ms) if r.e2e_ms else None, "served": r.model_served,
@@ -277,6 +288,7 @@ def _fail_msg(run: Run, names: list[str]) -> str:
 
 async def execute(run: Run) -> None:
     from ..load import run_load
+    from ..quality import run_quality
     from ..track_a import run_track_a
     from ..track_b import run_track_b
 
@@ -307,7 +319,15 @@ async def execute(run: Run) -> None:
         run.models = info
         if o.model and o.mode == "live":
             _write_run_prices(run.dir, o.model, info)
+            pub = await asyncio.to_thread(fetch_published, o.model)
+            (run.dir / "published.json").write_text(json.dumps(pub, indent=2))
+            if pub.get("endpoints"):
+                run.log(f"recorded OpenRouter's published stats for {len(pub['endpoints'])} providers of {o.model}")
+            for k, v in (pub.get("benchmarks") or {}).items():
+                run.log(f"OpenRouter publishes {k} = {v['accuracy']:.1f}% for this model ({v['source']})")
         run.save()
+        prices_path = run.dir / "prices.yaml" if (run.dir / "prices.yaml").exists() else (
+            cfg_dir / "prices.yaml" if (cfg_dir / "prices.yaml").exists() else ROOT / "configs/prices.yaml")
 
         if o.track_a:
             names_sys = list(gw)
@@ -334,6 +354,31 @@ async def execute(run: Run) -> None:
             await run_track_a(names_sys, path, run.dir, log=run.log,
                               progress=run.progress("Track A: speed & fees"), out_path=run.dir / "track_a.jsonl")
             run.phases["Track A: speed & fees"]["status"] = "done"
+            run.save()
+
+        if o.quality:
+            qbase = load_yaml(cfg_dir / "quality.yaml")
+            sets = [{**s_, "max_items": o.quality_items} for s_ in qbase.get("sets", [])
+                    if not o.quality_sets or s_["name"] in o.quality_sets]
+            have = [s_ for s_ in sets if (ROOT / s_["path"]).exists()]
+            for s_ in sets:
+                if s_ not in have:
+                    run.log(f"[skip] {s_.get('label', s_['name'])}: not downloaded yet ({s_['path']})")
+            if not have:
+                raise RuntimeError("None of the chosen question sets are downloaded. Use 'Download sets' in the "
+                                   "Quality parity panel (GPQA also needs HF_TOKEN).")
+            if not o.track_a:
+                bad = await preflight(run, "Quality parity", [(s_, s_.model_for(alias), True) for s_ in gw],
+                                      temperature=temperature)
+                if bad:
+                    raise RuntimeError(_fail_msg(run, bad))
+            path = _write_yaml(run.dir / "cfg_quality.yaml", {**qbase, "sets": have})
+            run.phases["Quality parity"] = {"done": 0, "total": 0, "status": "running"}
+            run.log(f"Quality parity started on {o.model or alias}: {', '.join(s_['name'] for s_ in have)}")
+            await run_quality([(s_.name, s_, s_.model_for(alias)) for s_ in gw], path, run.dir / "track_q.jsonl",
+                              prices_path=prices_path, temperature=temperature, log=run.log,
+                              progress=run.progress("Quality parity"))
+            run.phases["Quality parity"]["status"] = "done"
             run.save()
 
         if o.track_b:
@@ -623,7 +668,7 @@ def model_providers(author: str, slug: str):
 
 @app.post("/api/runs")
 async def create_run(opts: RunOptions):
-    if not (opts.track_a or opts.track_b or opts.load):
+    if not (opts.track_a or opts.track_b or opts.load or opts.quality):
         raise HTTPException(400, "Pick at least one test.")
     active = [r for r in RUNS.values() if r.status in ("queued", "running")]
     if active:
@@ -687,8 +732,7 @@ def set_billing(run_id: str, b: BillingIn):
     return {"ok": True}
 
 
-@app.get("/api/runs/{run_id}/results")
-def get_results(run_id: str):
+def _summary_for(run_id: str) -> dict:
     st = _get_state(run_id)
     mode = (st.get("options") or {}).get("mode", "live")
     cfg_dir = _cfg_dir(mode)
@@ -710,10 +754,170 @@ def get_results(run_id: str):
                 for key in (m["id"], *m["aliases"]):
                     catalog.setdefault(key, m["price"])
     billing = json.loads((run_dir / "billing.json").read_text()) if (run_dir / "billing.json").exists() else {}
-    summary = build_summary(run_dir, prices, REF, RIVAL, load_cfg, catalog=catalog, billing=billing)
+    published = json.loads((run_dir / "published.json").read_text()) if (run_dir / "published.json").exists() else {}
+    summary = build_summary(run_dir, prices, REF, RIVAL, load_cfg, catalog=catalog, billing=billing, published=published)
+    summary["published"] = published
     summary["mode"] = mode
     summary["models"] = st.get("models") or {}
-    return JSONResponse(summary)
+    summary["options"] = st.get("options") or {}
+    return summary
+
+
+@app.get("/api/runs/{run_id}/results")
+def get_results(run_id: str):
+    return JSONResponse(_summary_for(run_id))
+
+
+# ------------------------------------------------------------------ published stats, claims, question sets
+
+def _or_get(path: str, params: dict | None = None, auth: bool = True):
+    import httpx
+    from ..client import build_headers
+    headers = {}
+    if auth:
+        s_ = load_systems(_cfg_dir("live") / "systems.yaml").get(RIVAL)
+        if s_ and s_.available:
+            headers = build_headers(s_)
+    r = httpx.get(f"{OPENROUTER_API}{path}", headers=headers, params=params, timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+
+_PUBLISHED: dict[str, tuple[float, dict]] = {}
+
+
+def fetch_published(model: str) -> dict:
+    """What OpenRouter publishes about a model: per-provider latency/throughput/uptime and benchmark scores."""
+    hit = _PUBLISHED.get(model)
+    if hit and time.time() - hit[0] < 1800:
+        return hit[1]
+    out: dict[str, Any] = {"model": model, "fetched": time.time(), "endpoints": [], "benchmarks": {}, "errors": []}
+    name = next((m.get("name") for m in fetch_catalog()[0] if m.get("id") == model), None)
+    out["name"] = name
+    if "/" in model:
+        author, slug = model.split("/", 1)
+        try:
+            out["endpoints"] = parse_endpoints(((_or_get(f"/models/{author}/{slug}/endpoints").get("data") or {}).get("endpoints")) or [])
+        except Exception as e:  # noqa: BLE001
+            out["errors"].append(f"endpoints: {e}")
+    try:
+        out["benchmarks"] = find_published_scores(_or_get("/benchmarks", {"source": "openrouter"}), model, name)
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append(f"benchmarks API: {e}")
+    if not out["benchmarks"]:
+        out["benchmarks"] = snapshot_scores(model, name)
+    _PUBLISHED[model] = (time.time(), out)
+    return out
+
+
+@app.get("/api/published")
+def published(model: str):
+    return fetch_published(model)
+
+
+def _latest_run(has: str) -> str | None:
+    rows = sorted(list_runs(), key=lambda s: s.get("created") or 0, reverse=True)
+    for r in rows:
+        if (r.get("options") or {}).get("mode") != "live" or r.get("status") in ("running", "queued"):
+            continue
+        if (RUNS_DIR / r["id"] / has).exists():
+            return r["id"]
+    return None
+
+
+_CLAIMS: dict[str, Any] = {"t": 0.0, "data": None}
+
+
+@app.get("/api/claims")
+def claims(refresh: bool = False):
+    if not refresh and _CLAIMS["data"] is not None and time.time() - _CLAIMS["t"] < 300:
+        return _CLAIMS["data"]
+    ctx: dict[str, Any] = {}
+    ctx["ref_models"], ctx["ref_error"] = fetch_ref_models(force=refresh)
+    ctx["or_models"], ctx["or_error"] = fetch_catalog(force=refresh)
+    ctx["match"] = lambda mid: match_ref_model(mid, ctx["ref_models"])
+    try:
+        ctx["or_providers"] = len(_or_get("/providers").get("data") or [])
+    except Exception as e:  # noqa: BLE001
+        ctx["or_providers"], ctx["or_providers_error"] = None, f"Couldn't read /providers: {e}"
+    rid = _latest_run("track_a.jsonl")
+    if rid:
+        try:
+            sm = _summary_for(rid)
+            mv = {m["key"]: m["values"] for m in sm.get("metrics", [])}
+            sides = (sm.get("billing") or {}).get("sides") or {}
+            rv = sides.get(RIVAL) or {}
+            opts = sm.get("options") or {}
+            ctx["speed"] = {
+                "run_id": rid, "model": opts.get("model"), "upstream": opts.get("upstream"),
+                "or_ttft_p50": (mv.get("ttft_p50") or {}).get(RIVAL), "ref_ttft_p50": (mv.get("ttft_p50") or {}).get(REF),
+                "or_tps_p50": (mv.get("tps") or {}).get(RIVAL), "ref_tps_p50": (mv.get("tps") or {}).get(REF),
+                "or_reported_vs_list": (rv["reported_total"] / rv["list_cost"]) if rv.get("reported_total") and rv.get("list_cost") else None,
+                "billing": {"ref_ratio": (sides.get(REF) or {}).get("ratio") if (sides.get(REF) or {}).get("billed_source") == "entered" else None,
+                            "note": (sm.get("billing") or {}).get("note")},
+                "published_endpoints": (sm.get("published") or {}).get("endpoints") or []}
+        except Exception as e:  # noqa: BLE001
+            ctx["speed"] = {"error": str(e)}
+    qid = _latest_run("track_q.jsonl")
+    if qid:
+        try:
+            sm = _summary_for(qid)
+            q = sm.get("quality") or {}
+            ctx["quality"] = {**q, "run_id": qid, "model": (sm.get("options") or {}).get("model"),
+                              "published": (sm.get("published") or {}).get("benchmarks") or {}}
+        except Exception as e:  # noqa: BLE001
+            ctx["quality"] = {"error": str(e)}
+    out = clean(build_claims(ctx))
+    out["runs"] = {"speed": rid, "quality": qid}
+    out["checked"] = time.time()
+    _CLAIMS.update(t=time.time(), data=out)
+    return out
+
+
+_PREP: dict[str, Any] = {"running": False, "log": [], "result": None}
+
+
+@app.get("/api/quality/sets")
+def quality_sets(mode: str = "live"):
+    q = load_yaml(_cfg_dir(mode) / "quality.yaml")
+    rows = []
+    for s_ in q.get("sets", []):
+        p = ROOT / s_["path"]
+        n = sum(1 for _ in open(p, encoding="utf-8")) if p.exists() else 0
+        rows.append({"name": s_["name"], "label": s_.get("label", s_["name"]), "ready": p.exists(), "count": n,
+                     "gated": s_["name"] == "gpqa_diamond"})
+    try:
+        import datasets  # noqa: F401
+        has_lib = True
+    except Exception:  # noqa: BLE001
+        has_lib = False
+    return {"sets": rows, "datasets_lib": has_lib,
+            "hf_token": bool(os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")),
+            "max_tokens": q.get("max_tokens"), "prepare": {k: _PREP[k] for k in ("running", "result")} | {"log": _PREP["log"][-20:]}}
+
+
+class PrepareIn(BaseModel):
+    sets: list[str] = []
+
+
+@app.post("/api/quality/prepare")
+def quality_prepare(body: PrepareIn):
+    if _PREP["running"]:
+        raise HTTPException(409, "Already downloading.")
+    from ..datasets import prepare_all
+
+    def work():
+        _PREP.update(running=True, log=[], result=None)
+        try:
+            _PREP["result"] = prepare_all(ROOT / "data/prepared", only=body.sets or ["gpqa_diamond", "mmlu_pro", "gsm8k"],
+                                          log=lambda m: _PREP["log"].append(m))
+        except Exception as e:  # noqa: BLE001
+            _PREP["result"] = {"error": str(e)}
+            _PREP["log"].append(f"failed: {e}")
+        finally:
+            _PREP["running"] = False
+    threading.Thread(target=work, daemon=True).start()
+    return {"ok": True}
 
 
 def serve(host: str = "127.0.0.1", port: int = 8765) -> None:

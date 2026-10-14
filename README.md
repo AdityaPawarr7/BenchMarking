@@ -46,7 +46,7 @@ gbench load --systems concentrate,openrouter,ramp-router
 gbench report results --report-dir reports/$(date +%Y%m%d)
 ```
 
-## Web UI (v1: Concentrate vs OpenRouter)
+## Web UI (v2: Concentrate vs OpenRouter)
 
 ```bash
 pip install -e '.[ui]'
@@ -89,6 +89,22 @@ gbench ui                         # open http://127.0.0.1:8765
   success rate, tokens counted per request (billing accounting), cost per 1M tokens, charged ÷ list
   price, and charged for identical work, plus routing accuracy and cost per correct answer.
 - **Cheapest on both:** the model picker suggests the cheapest models both gateways offer.
+- **Quality parity:** the same model answers the same exam questions (GPQA Diamond, MMLU-Pro,
+  GSM8K) through both gateways; accuracy is compared question by question (McNemar) and against the
+  GPQA score OpenRouter publishes for that model. A gateway can only lose points (different or
+  quantized provider, dropped parameters, cut-off answers), so the question is whether there's a gap.
+  Download the sets from the panel (`pip install -e '.[data]'`; GPQA is gated, so accept its terms on
+  Hugging Face and set `HF_TOKEN`) or run `gbench prepare-data --only gpqa_diamond,mmlu_pro,gsm8k`.
+- **Claims check:** every claim on concentrate.ai and openrouter.ai (catalog size, "no fees / zero
+  markup", one-line switch, OpenRouter's fee and no-markup claims, its per-provider latency and
+  throughput, its GPQA scores) with what it means, how it's checked, the live result and a verdict.
+  Counts come from each API; measurements from your latest live runs. Each live run also snapshots
+  what OpenRouter publishes for the model (`published.json`).
+- **Benchmarks explained:** plain-language guide to SWE-bench, GPQA, MMLU-Pro, Intelligence Index,
+  Terminal-Bench, τ²-bench and the Router Index, and why model benchmarks aren't gateway benchmarks.
+- **Look:** Concentrate's site styling frames the page; OpenRouter's side of every comparison uses
+  OpenRouter's styling. Concentrate marks are squares, OpenRouter's are circles, so nothing relies on
+  colour alone. No logos.
 - Every run is saved under `results/ui/<run-id>/` (raw JSONL + the exact configs used), so
   `gbench report results/ui/<run-id>` produces the same analysis as a Markdown report.
 

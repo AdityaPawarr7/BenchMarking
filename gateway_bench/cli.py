@@ -50,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     pd_ = sub.add_parser("prepare-data", help="download + convert public datasets (needs '.[data]')")
     pd_.add_argument("--dest", default="data/prepared")
     pd_.add_argument("--limit", type=int)
+    pd_.add_argument("--only", help="comma-separated subset: gsm8k,mmlu_pro,math500,gpqa_diamond")
 
     pr = sub.add_parser("report", help="analyse results and write tables, charts and REPORT.md")
     pr.add_argument("inputs", nargs="*", default=["results"])
@@ -69,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "prepare-data":
         from .datasets import prepare_all
-        print(prepare_all(args.dest, args.limit))
+        print(prepare_all(args.dest, args.limit, only=args.only.split(",") if args.only else None))
         return 0
     if args.cmd == "report":
         from .report import build_report
