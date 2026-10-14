@@ -95,7 +95,7 @@ gbench ui                         # open http://127.0.0.1:8765
   quantized provider, dropped parameters, cut-off answers), so the question is whether there's a gap.
   Download the sets from the panel (`pip install -e '.[data]'`; GPQA is gated, so accept its terms on
   Hugging Face and set `HF_TOKEN`) or run `gbench prepare-data --only gpqa_diamond,mmlu_pro,gsm8k`.
-- **Claims check:** every claim on concentrate.ai and openrouter.ai (catalog size, "no fees / zero
+- **Claims check:** every API claim on concentrate.ai and openrouter.ai ("no fees / zero
   markup", one-line switch, OpenRouter's fee and no-markup claims, its per-provider latency and
   throughput, its GPQA scores) with what it means, how it's checked, the live result and a verdict.
   Counts come from each API; measurements from your latest live runs. Each live run also snapshots

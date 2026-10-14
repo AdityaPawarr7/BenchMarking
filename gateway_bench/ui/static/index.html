@@ -419,12 +419,12 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
         <a class="cta" href="#claims">Check the claims</a>
       </div>
     </div>
-    <div class="versus" aria-label="Live catalog numbers">
+    <div class="versus" aria-label="Latest live run">
       <div class="vs-panel ref">
         <div class="vs-head"><span class="dot ref"></span><span class="wm ref">Concentrate</span></div>
         <div class="vs-stats">
-          <div class="vs-stat"><div class="n num" id="stRefModels">–</div><div class="l">models</div></div>
-          <div class="vs-stat"><div class="n num" id="stRefProv">–</div><div class="l">providers</div></div>
+          <div class="vs-stat"><div class="n num" id="stRefTtft">–</div><div class="l">first token p50</div></div>
+          <div class="vs-stat"><div class="n num" id="stRefBill">–</div><div class="l">charged ÷ list</div></div>
         </div>
         <div class="vs-claim">Claims <b id="stRefHold">–</b> · “No fees. Zero markup.”</div>
       </div>
@@ -432,10 +432,10 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
       <div class="vs-panel rival">
         <div class="vs-head"><span class="dot rival"></span><span class="wm rival">OpenRouter</span></div>
         <div class="vs-stats">
-          <div class="vs-stat"><div class="n num" id="stOrModels">–</div><div class="l">Models</div></div>
-          <div class="vs-stat"><div class="n num" id="stOrProv">–</div><div class="l">Providers</div></div>
+          <div class="vs-stat"><div class="n num" id="stOrTtft">–</div><div class="l">First token p50</div></div>
+          <div class="vs-stat"><div class="n num" id="stOrBill">–</div><div class="l">Charged ÷ list</div></div>
         </div>
-        <div class="vs-claim">Claims <b id="stOrHold">–</b> · “500+ models, 80+ providers”</div>
+        <div class="vs-claim">Claims <b id="stOrHold">–</b> · “No markup on inference.”</div>
       </div>
     </div>
   </div>
@@ -672,7 +672,7 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
 
 <div class="band" id="claims">
   <div class="band-h"><div><div class="eyebrow">02 // Claims check</div><h2>What they say. <em>What we measured.</em></h2>
-    <p>Every claim from each homepage, model page and benchmark page, with what it means in plain words, how we test it, and a verdict. Live: counts come from each API with your keys, measurements from your latest runs.</p></div>
+    <p>Every claim about the API itself (price, fees, integration, speed, model quality) from each homepage, model page and benchmark page: what it means, how we test it, and a verdict from your latest live runs.</p></div>
     <span class="spacer"></span><button class="btn secondary" id="claimsRefresh" type="button">Re-check now</button></div>
   <div class="claims-top" id="claimsTop"><span class="skeleton" style="padding:0">Checking…</span></div>
   <div class="claims">
@@ -1770,8 +1770,10 @@ async function loadClaims(refresh = false) {
   catch (e) { $("#claimsTop").innerHTML = `<div class="note">Couldn't run the claims check: ${esc(e.message)}</div>`; return; }
   state.claims = c;
   const st = c.stats || {}, n = v => v == null ? "–" : Number(v).toLocaleString();
-  $("#stRefModels").textContent = n(st.ref_models); $("#stRefProv").textContent = n(st.ref_providers);
-  $("#stOrModels").textContent = n(st.or_models); $("#stOrProv").textContent = n(st.or_providers);
+  const x = v => v == null ? "–" : v.toFixed(2) + "×";
+  $("#stRefTtft").textContent = fmt(st.ref_ttft_p50, "ms"); $("#stOrTtft").textContent = fmt(st.or_ttft_p50, "ms");
+  $("#stRefBill").textContent = x(st.ref_billed_ratio); $("#stOrBill").textContent = x(st.or_billed_ratio);
+  $(".versus").title = st.run_id ? `From live run ${st.run_id}${st.model ? " (" + st.model + ")" : ""}. Charged ÷ list for Concentrate needs the dashboard amount entered under Fairness checks.` : "Run a live Speed & fees test to fill these in.";
   const tally = who => {
     const cs = c.claims.filter(x => x.who === who && !["info", "not tested"].includes(x.verdict));
     return cs.length ? `${cs.filter(x => x.verdict === "holds").length} of ${cs.length} tested hold` : "not tested yet";

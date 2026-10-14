@@ -207,20 +207,7 @@ def build_claims(ctx: dict) -> dict:
         kw.setdefault("evidence", [])
         claims.append(kw)
 
-    # ------------------------------------------------ Concentrate
-    n_ref = len(ref_models)
-    prov = sorted({p for m in ref_models for p in (m.get("providers") or [])})
-    authors = sorted({m.get("author") for m in ref_models if m.get("author")})
-    if n_ref:
-        v = "holds" if n_ref >= 200 and len(prov) >= 24 else ("partly" if n_ref >= 100 else "doesn't hold")
-        found = f"{n_ref} models from {len(authors)} model makers, served by {len(prov)} providers"
-    else:
-        v, found = "not tested", ctx.get("ref_error") or "Concentrate's model list wasn't reachable"
-    add(id="conc_catalog", who="concentrate", claim="Hundreds of models, dozens of providers", source=CONC_URL,
-        means="How much you can reach with one key. 'Hundreds' would be 200+; 'dozens' 24+.",
-        how="Count GET /v1/models on Concentrate (with your key): models, distinct providers, model makers.",
-        found=found, verdict=v, evidence=[{"label": "Providers", "value": ", ".join(prov[:30]) + (" …" if len(prov) > 30 else "")}] if prov else [])
-
+    # ------------------------------------------------ Concentrate (API, price and integration claims only)
     # list price vs OpenRouter (= provider list price, since OpenRouter adds no per-request markup)
     cmp_rows = []
     if match and or_models:
@@ -293,21 +280,10 @@ def build_claims(ctx: dict) -> dict:
     add(id="conc_bench", who="concentrate", claim="No benchmark scores published", source=CONC_URL,
         means="—", how="Read concentrate.ai, /models and /features/routing.",
         found="Concentrate's site makes no benchmark claims (no SWE-bench, GPQA or router leaderboard). Its claims are "
-              "about price, coverage and integration, checked above. Concentrate is also not on OpenRouter's Router Index.",
+              "about price and integration, checked above. Concentrate is also not on OpenRouter's Router Index.",
         verdict="info", evidence=[{"label": "Router Index", "value": OR_ROUTERS}])
 
     # ------------------------------------------------ OpenRouter
-    n_or = len([m for m in or_models if ":" not in m.get("id", "")])
-    add(id="or_models", who="openrouter", claim="500+ models", source=OR_URL,
-        means="Catalog size.", how="Count GET /api/v1/models (public), not counting :free and other variants.",
-        found=(f"{n_or} models ({len(or_models)} including variants)" if or_models else (ctx.get("or_error") or "catalog unreachable")),
-        verdict=("holds" if n_or >= 500 else "doesn't hold") if or_models else "not tested")
-    n_p = ctx.get("or_providers")
-    add(id="or_providers", who="openrouter", claim="80+ providers", source=OR_URL,
-        means="How many companies actually serve the models behind OpenRouter.",
-        how="Count GET /api/v1/providers (needs your OpenRouter key).",
-        found=(f"{n_p} providers" if n_p is not None else (ctx.get("or_providers_error") or "not reachable")),
-        verdict=("holds" if n_p >= 80 else "doesn't hold") if n_p is not None else "not tested")
     add(id="or_nomarkup", who="openrouter", claim="No markup on inference: you pay provider prices", source=OR_FAQ,
         means="Per-request price equals the provider's list price; the fee is on buying credits instead.",
         how="Compare usage.cost that OpenRouter returns on every request with list price × tokens.",
@@ -376,6 +352,9 @@ def build_claims(ctx: dict) -> dict:
     for c in claims:
         counts[c["verdict"]] = counts.get(c["verdict"], 0) + 1
     return {"claims": claims, "counts": counts, "glossary": GLOSSARY,
-            "stats": {"ref_models": n_ref or None, "ref_providers": len(prov) or None, "ref_authors": len(authors) or None,
-                      "or_models": n_or or None, "or_providers": n_p,
-                      "both": len(cmp_rows) or None}}
+            "stats": {
+                "ref_ttft_p50": speed.get("ref_ttft_p50"), "or_ttft_p50": speed.get("or_ttft_p50"),
+                "ref_tps_p50": speed.get("ref_tps_p50"), "or_tps_p50": speed.get("or_tps_p50"),
+                "ref_billed_ratio": (speed.get("billing") or {}).get("ref_ratio"),
+                "or_billed_ratio": speed.get("or_reported_vs_list"),
+                "model": speed.get("model"), "run_id": speed.get("run_id")}}

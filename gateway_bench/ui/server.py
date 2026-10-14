@@ -836,10 +836,6 @@ def claims(refresh: bool = False):
     ctx["ref_models"], ctx["ref_error"] = fetch_ref_models(force=refresh)
     ctx["or_models"], ctx["or_error"] = fetch_catalog(force=refresh)
     ctx["match"] = lambda mid: match_ref_model(mid, ctx["ref_models"])
-    try:
-        ctx["or_providers"] = len(_or_get("/providers").get("data") or [])
-    except Exception as e:  # noqa: BLE001
-        ctx["or_providers"], ctx["or_providers_error"] = None, f"Couldn't read /providers: {e}"
     rid = _latest_run("track_a.jsonl")
     if rid:
         try:

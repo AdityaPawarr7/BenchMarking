@@ -42,12 +42,12 @@ def test_build_claims_verdicts():
              "or_tps_p50": 80.0, "ref_ttft_p50": 2100.0, "ref_tps_p50": 72.0, "or_reported_vs_list": 1.0,
              "published_endpoints": [{"provider": "Google Vertex", "tag": "vertex", "ttft_p50_ms": 2790.0, "tps_p50": 85.0,
                                       "uptime_30m": 99.9, "quantization": None}]}
-    out = build_claims({"ref_models": ref, "or_models": orm, "match": match, "or_providers": 84,
+    out = build_claims({"ref_models": ref, "or_models": orm, "match": match,
                         "speed": speed, "quality": quality})
     v = {c["id"]: c["verdict"] for c in out["claims"]}
-    assert v["conc_catalog"] == "doesn't hold"          # 2 models is not "hundreds"
+    assert not {"conc_catalog", "or_models", "or_providers"} & set(v)   # catalog-size claims are out of scope
     assert v["conc_nofees"] == "partly"                 # glm is pricier on Concentrate in this fixture
-    assert v["or_models"] == "doesn't hold" and v["or_providers"] == "holds"
+    assert out["stats"]["or_ttft_p50"] == 2900.0 and out["stats"]["or_billed_ratio"] == 1.0
     assert v["or_nomarkup"] == "holds"
     assert v["or_latency"] == "holds"
     assert v["or_gpqa"] == "holds"
