@@ -96,6 +96,15 @@ class RunOptions(BaseModel):
     quality: bool = False
     quality_sets: list[str] = []
     quality_items: int = Field(50, ge=1, le=20000)
+    # Volume & concurrency: N requests with C in flight, per gateway (closed loop)
+    volume: bool = False
+    volume_levels: list[dict] = [{"requests": 100, "concurrency": 10}]
+    volume_shape: str = "tiny"
+    # Prompt-cache probe: the same long prompt sent several times in a row
+    cache_probe: bool = False
+    cache_prefix_tokens: int = Field(8000, ge=1000, le=200000)
+    # Set by scheduled sweeps: {"sweep_id", "slot", "pin_mode", "model_name"}
+    sweep: dict = {}
 
 
 class Run:
@@ -381,6 +390,30 @@ async def execute(run: Run) -> None:
             run.phases["Quality parity"]["status"] = "done"
             run.save()
 
+        if o.volume or o.cache_probe:
+            if not (o.track_a or o.quality):
+                bad = await preflight(run, "Volume", [(s_, s_.model_for(alias), True) for s_ in gw], temperature=temperature)
+                if bad:
+                    raise RuntimeError(_fail_msg(run, bad))
+        if o.volume:
+            from ..volume import run_volume
+            shp = next((x for x in ta_base["shapes"] if x["name"] == o.volume_shape), ta_base["shapes"][0])
+            run.phases["Volume & concurrency"] = {"done": 0, "total": 0, "status": "running"}
+            run.log("Volume started: " + ", ".join(f"{int(lv['requests']):,} requests / {int(lv['concurrency'])} at once"
+                                                     for lv in o.volume_levels))
+            await run_volume(gw, alias, o.volume_levels, shp, run.dir / "track_v.jsonl", temperature=temperature,
+                             seed=int(run.created), log=run.log, progress=run.progress("Volume & concurrency"))
+            run.phases["Volume & concurrency"]["status"] = "done"
+            run.save()
+        if o.cache_probe:
+            from ..cacheprobe import run_cache_probe
+            run.phases["Prompt cache"] = {"done": 0, "total": 0, "status": "running"}
+            await run_cache_probe(gw, alias, run.dir / "track_c.jsonl", prefix_tokens=o.cache_prefix_tokens,
+                                  repeats=4, gap_s=0.2 if o.mode == "demo" else 2.0, temperature=temperature,
+                                  log=run.log, progress=run.progress("Prompt cache"))
+            run.phases["Prompt cache"]["status"] = "done"
+            run.save()
+
         if o.track_b:
             base = load_yaml(cfg_dir / "track_b.yaml")
             sys_b = copy.deepcopy(systems)
@@ -608,7 +641,15 @@ def fetch_ref_models(force: bool = False) -> tuple[list[dict], str | None]:
             if sup is not None:
                 temps.append(bool(sup))
         cheapest = min(prices, key=lambda p: p[0] + p[1]) if prices else None
-        out.append({"id": x.get("id") or x.get("slug"), "aliases": x.get("aliases") or [],
+        pp = {}
+        for pname, pv in (x.get("providers") or {}).items():
+            try:
+                t = pv["pricing"][0]["tokens"]
+                pp[pname] = {"input": float(t["input"]["price"]["USD"]) / float(t["input"].get("units", 1e6)) * 1e6,
+                             "output": float(t["output"]["price"]["USD"]) / float(t["output"].get("units", 1e6)) * 1e6}
+            except (KeyError, IndexError, TypeError, ValueError, ZeroDivisionError):
+                pass
+        out.append({"id": x.get("id") or x.get("slug"), "aliases": x.get("aliases") or [], "provider_prices": pp,
                     "author": (x.get("author") or {}).get("slug") if isinstance(x.get("author"), dict) else x.get("author"),
                     "price": {"input": cheapest[0], "output": cheapest[1]} if cheapest else None,
                     "providers": list((x.get("providers") or {}).keys()),
@@ -668,7 +709,7 @@ def model_providers(author: str, slug: str):
 
 @app.post("/api/runs")
 async def create_run(opts: RunOptions):
-    if not (opts.track_a or opts.track_b or opts.load or opts.quality):
+    if not (opts.track_a or opts.track_b or opts.load or opts.quality or opts.volume or opts.cache_probe):
         raise HTTPException(400, "Pick at least one test.")
     active = [r for r in RUNS.values() if r.status in ("queued", "running")]
     if active:
@@ -732,14 +773,9 @@ def set_billing(run_id: str, b: BillingIn):
     return {"ok": True}
 
 
-def _summary_for(run_id: str) -> dict:
-    st = _get_state(run_id)
-    mode = (st.get("options") or {}).get("mode", "live")
-    cfg_dir = _cfg_dir(mode)
-    run_dir = RUNS_DIR / run_id
-    load_cfg = load_yaml(run_dir / "cfg_load.yaml") if (run_dir / "cfg_load.yaml").exists() else {}
-    prices = run_dir / "prices.yaml" if (run_dir / "prices.yaml").exists() else (
-        cfg_dir / "prices.yaml" if (cfg_dir / "prices.yaml").exists() else ROOT / "configs/prices.yaml")
+def build_catalog(mode: str = "live") -> dict:
+    """List prices by model id: OpenRouter's catalog, Concentrate's per-provider prices as
+    "<provider>/<model>" (what Concentrate reports as served), and its cheapest price per model."""
     catalog = {}
     if mode == "live":
         data, _ = fetch_catalog()
@@ -750,9 +786,24 @@ def _summary_for(run_id: str) -> dict:
                 catalog[m["id"]] = {"input": pi, "output": po}
         refs, _ = fetch_ref_models()
         for m in refs:
+            for prov, pr in (m.get("provider_prices") or {}).items():
+                catalog[f"concentrate:{prov}/{m['id']}"] = pr   # Concentrate reports "<provider>/<model>" as served
+        for m in refs:
             if m.get("price"):
                 for key in (m["id"], *m["aliases"]):
                     catalog.setdefault(key, m["price"])
+    return catalog
+
+
+def _summary_for(run_id: str) -> dict:
+    st = _get_state(run_id)
+    mode = (st.get("options") or {}).get("mode", "live")
+    cfg_dir = _cfg_dir(mode)
+    run_dir = RUNS_DIR / run_id
+    load_cfg = load_yaml(run_dir / "cfg_load.yaml") if (run_dir / "cfg_load.yaml").exists() else {}
+    prices = run_dir / "prices.yaml" if (run_dir / "prices.yaml").exists() else (
+        cfg_dir / "prices.yaml" if (cfg_dir / "prices.yaml").exists() else ROOT / "configs/prices.yaml")
+    catalog = build_catalog(mode)
     billing = json.loads((run_dir / "billing.json").read_text()) if (run_dir / "billing.json").exists() else {}
     published = json.loads((run_dir / "published.json").read_text()) if (run_dir / "published.json").exists() else {}
     summary = build_summary(run_dir, prices, REF, RIVAL, load_cfg, catalog=catalog, billing=billing, published=published)
@@ -914,6 +965,81 @@ def quality_prepare(body: PrepareIn):
             _PREP["running"] = False
     threading.Thread(target=work, daemon=True).start()
     return {"ok": True}
+
+
+# ------------------------------------------------------------------ scheduled sweeps (top-10 models, 3x a day)
+
+@app.get("/api/sweeps")
+def sweeps(days: int = 7):
+    """Latest sweep results per model and routing mode, from results/sweeps/sweep_log.csv."""
+    import csv as _csv
+    import subprocess
+    import sys as _sys
+    from ..sweep import LABEL, LOG_CSV
+    path = ROOT / LOG_CSV
+    installed = None
+    if _sys.platform == "darwin":
+        try:
+            installed = LABEL in subprocess.run(["launchctl", "list"], capture_output=True, text=True, timeout=5).stdout
+        except Exception:  # noqa: BLE001
+            installed = None
+    if not path.exists():
+        return {"rows": [], "models": [], "installed": installed, "csv": None}
+    cutoff = time.strftime("%Y-%m-%d", time.localtime(time.time() - days * 86400))
+    with open(path, newline="") as f:
+        rows = [r for r in _csv.DictReader(f) if r.get("date", "") >= cutoff]
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def med(xs):
+        xs = sorted(x for x in xs if x is not None)
+        return xs[len(xs) // 2] if xs else None
+
+    groups: dict[tuple, dict] = {}
+    for r in rows:
+        key = (r["model"], r["mode"])
+        g = groups.setdefault(key, {"model": r["model"], "mode": r["mode"], "slots": set(), "last": "", "cells": {}})
+        g["slots"].add(r["slot"])
+        g["last"] = max(g["last"], f"{r['date']} {r['local_time']}")
+        g["cells"].setdefault((r["test"], r["cell"], r["gateway"]), []).append(r)
+    out = []
+    for (model, mode), g in groups.items():
+        def pick(test, cell, gw, col):
+            return med([num(x.get(col)) for x in g["cells"].get((test, cell, gw), [])])
+        vol_cells = sorted({c for (t, c, _) in g["cells"] if t == "volume"}, key=lambda c: int(c.split("@")[0]))
+        top_vol = vol_cells[-1] if vol_cells else None
+        row = {"model": model, "mode": mode, "slots": sorted(g["slots"]), "last": g["last"]}
+        for gw in (REF, RIVAL):
+            row[gw] = {"ttft_p50": pick("speed", "short", gw, "ttft_p50_ms"), "ttft_p90": pick("speed", "short", gw, "ttft_p90_ms"),
+                       "tps": pick("speed", "medium", gw, "tps_p50"), "cost_short": pick("speed", "short", gw, "cost_per_req_usd"),
+                       "cost_long": pick("speed", "long", gw, "cost_per_req_usd"),
+                       "vol_success": pick("volume", top_vol, gw, "success_pct") if top_vol else None,
+                       "vol_p90": pick("volume", top_vol, gw, "ttft_p90_ms") if top_vol else None,
+                       "cache": pick("cache", "repeats", gw, "cached_share_pct"),
+                       "providers": "; ".join(sorted({x.get("providers_served", "") for x in g["cells"].get(("speed", "short", gw), []) if x.get("providers_served")}))[:200]}
+        row["vol_level"] = top_vol
+        by_slot = {}
+        for sl in ("morning", "afternoon", "evening"):
+            by_slot[sl] = {gw: med([num(x.get("ttft_p50_ms")) for x in g["cells"].get(("speed", "short", gw), []) if x.get("slot") == sl])
+                           for gw in (REF, RIVAL)}
+        row["by_slot"] = by_slot
+        out.append(row)
+    order = [m.get("name") for m in (load_yaml(ROOT / "configs/top10.yaml").get("models") or [])] if (ROOT / "configs/top10.yaml").exists() else []
+    out.sort(key=lambda r: (order.index(r["model"]) if r["model"] in order else 99, r["mode"]))
+    return clean({"rows": out, "installed": installed, "csv": "/api/sweeps.csv", "n_rows": len(rows), "days": days})
+
+
+@app.get("/api/sweeps.csv")
+def sweeps_csv():
+    from ..sweep import LOG_CSV
+    path = ROOT / LOG_CSV
+    if not path.exists():
+        raise HTTPException(404, "No sweep has run yet.")
+    return FileResponse(path, media_type="text/csv", filename="sweep_log.csv")
 
 
 def serve(host: str = "127.0.0.1", port: int = 8765) -> None:

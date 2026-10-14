@@ -31,6 +31,10 @@ class CallResult:
     output_tokens: int | None = None
     output_tps: float | None = None
     cost_reported: float | None = None   # billed cost if the system returns it (e.g. usage.cost)
+    provider_served: str | None = None   # upstream that answered: OpenRouter's "provider" field, or the
+                                         # "<provider>/<model>" prefix Concentrate puts in "model"
+    cached_tokens: int | None = None     # input tokens served from a prompt cache
+    reasoning_tokens: int | None = None  # output tokens spent thinking (billed as output)
     text: str = ""
     meta: dict[str, Any] = field(default_factory=dict)
 
@@ -44,6 +48,32 @@ def build_headers(system: System) -> dict[str, str]:
         h["Authorization"] = f"Bearer {system.api_key}"
     h.update(expand_env(system.headers))
     return h
+
+
+def _usage_details(res: "CallResult", usage: dict[str, Any]) -> None:
+    res.input_tokens = usage.get("prompt_tokens")
+    res.output_tokens = usage.get("completion_tokens")
+    res.cost_reported = _extract_cost(usage)
+    ptd = usage.get("prompt_tokens_details") or {}
+    cached = ptd.get("cached_tokens")
+    if cached is None:
+        cached = usage.get("cache_read_input_tokens")
+    if isinstance(cached, (int, float)):
+        res.cached_tokens = int(cached)
+    ctd = usage.get("completion_tokens_details") or {}
+    rt = ctd.get("reasoning_tokens")
+    if isinstance(rt, (int, float)):
+        res.reasoning_tokens = int(rt)
+
+
+def _served_provider(res: "CallResult", data: dict[str, Any]) -> None:
+    if res.provider_served:
+        return
+    p = data.get("provider")
+    if isinstance(p, str) and p:
+        res.provider_served = p
+    elif isinstance(res.model_served, str) and "/" in res.model_served and res.system == "concentrate":
+        res.provider_served = res.model_served.split("/", 1)[0]
 
 
 def _extract_cost(usage: dict[str, Any] | None) -> float | None:
@@ -133,10 +163,8 @@ async def _do_plain(client, url, headers, body, res: CallResult, t0: float, time
     choices = data.get("choices") or []
     if choices:
         res.text = (choices[0].get("message") or {}).get("content") or ""
-    usage = data.get("usage") or {}
-    res.input_tokens = usage.get("prompt_tokens")
-    res.output_tokens = usage.get("completion_tokens")
-    res.cost_reported = _extract_cost(usage)
+    _usage_details(res, data.get("usage") or {})
+    _served_provider(res, data)
     res.meta["gateway_headers"] = _interesting_headers(r.headers)
     res.ok = True
 
@@ -165,6 +193,7 @@ async def _do_stream(client, url, headers, body, res: CallResult, t0: float, tim
                 return
             if chunk.get("model") and not res.model_served:
                 res.model_served = chunk["model"]
+            _served_provider(res, chunk)
             for ch in chunk.get("choices") or []:
                 d = ch.get("delta") or {}
                 text = d.get("content")
@@ -178,9 +207,7 @@ async def _do_stream(client, url, headers, body, res: CallResult, t0: float, tim
                     parts.append(text)
             usage = chunk.get("usage")
             if usage:
-                res.input_tokens = usage.get("prompt_tokens")
-                res.output_tokens = usage.get("completion_tokens")
-                res.cost_reported = _extract_cost(usage)
+                _usage_details(res, usage)
     res.e2e_ms = (time.perf_counter() - t0) * 1000
     res.text = "".join(parts)
     res.ok = True

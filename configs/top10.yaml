@@ -1,0 +1,48 @@
+# Scheduled sweep: the top 10 models used on OpenRouter that Concentrate also serves.
+# Source: openrouter.ai/rankings, week to Oct 13 2026 (tokens). Step 5 Preview (#2) isn't on Concentrate,
+# so GPT-5.6 Luna (#7 by monthly tokens) replaces it; Nemotron 3 Ultra is tested on its paid version.
+# `openrouter` is OpenRouter's model ID; `concentrate` is Concentrate's. If an OpenRouter ID is wrong,
+# the sweep looks the model up by name in OpenRouter's catalog and logs what it used.
+models:
+  - {name: DeepSeek V4.1 Flash,     openrouter: deepseek/deepseek-v4.1-flash,  concentrate: deepseek-v4-1-flash}
+  - {name: GLM 5.3 Flash,           openrouter: z-ai/glm-5.3-flash,            concentrate: glm-5.3-flash}
+  - {name: MiMo-V2.6-Flash,         openrouter: xiaomi/mimo-v2.6-flash,        concentrate: mimo-v2.6-flash}
+  - {name: Hy4 preview,             openrouter: tencent/hy4-preview,           concentrate: hy4-preview}
+  - {name: Nemotron 3 Ultra,        openrouter: nvidia/nemotron-3-ultra,       concentrate: nemotron-3-ultra-nvfp4}
+  - {name: GPT-6 Luna,              openrouter: openai/gpt-6-luna,             concentrate: gpt-6-luna}
+  - {name: Claude Opus 5.5,         openrouter: anthropic/claude-opus-5.5,     concentrate: claude-opus-5-5}
+  - {name: DeepSeek V4 Flash 0731,  openrouter: deepseek/deepseek-v4-flash-0731, concentrate: deepseek-v4-flash-0731}
+  - {name: GLM 5.3,                 openrouter: z-ai/glm-5.3,                  concentrate: glm-5.3}
+  - {name: GPT-5.6 Luna,            openrouter: openai/gpt-5.6-luna,           concentrate: gpt-5.6-luna}
+
+# Two routing modes per model:
+#   same_provider: OpenRouter is pinned to the provider Concentrate actually served (Concentrate has no pin
+#                  option yet), so only the gateway differs.  -> gateway speed and fees
+#   default:       no pins; each gateway routes as it would for a customer.  -> what customers actually get
+modes: [same_provider, default]
+
+# Local times for `gbench schedule install` (your Mac's time zone). Minutes off the hour on purpose.
+slots: {morning: "08:47", afternoon: "13:47", evening: "19:47"}
+
+speed:                       # every slot
+  shapes: [tiny, short, medium, long]     # ~165, ~1.3k, ~10k, ~40k input tokens
+  stream_modes: [true]
+  requests_per_cell: 10      # x 4 sizes x 2 gateways per model and mode
+  warmup: 5                  # discarded, as in the manual runs
+
+volume:                      # small prompts, closed loop
+  shape: tiny
+  levels:
+    - {requests: 100,   concurrency: 10}                    # every slot
+    - {requests: 1000,  concurrency: 50}                    # every slot
+    - {requests: 10000, concurrency: 200, when: weekly, max_price_per_m: 2.0}   # weekly; skips models over $2/1M blended
+
+cache_probe: {prefix_tokens: 8000, when: daily}             # 4 identical prompts per gateway, once a day
+
+quality: {sets: [gpqa_diamond], items: 198, when: weekly, modes: [same_provider]}
+
+weekly: {day: sun, slot: evening}
+daily: {slot: afternoon}
+
+budget_usd_per_slot: 60      # estimated spend above this skips the most expensive units (logged)
+budget_usd_weekly_slot: 250  # the weekly slot also runs 10,000-request volume and GPQA (Opus GPQA alone is ~$35-65)

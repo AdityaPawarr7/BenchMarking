@@ -303,6 +303,8 @@ th { text-align: left; color: var(--text-3); font: 500 10px var(--mono); text-tr
 td { padding: 8px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
 td.r, th.r { text-align: right; }
 td.num { font-family: var(--mono); font-size: 12px; }
+#tableSweeps .w { color: var(--text); font-weight: 600; }
+#tableSweeps td { font-size: 11.5px; }
 td.wrap { white-space: normal; max-width: 520px; color: var(--text-2); font-size: 12px; }
 tr.is-ref td:first-child { box-shadow: inset 3px 0 0 var(--ref); }
 tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); font-family: var(--or-sans); }
@@ -402,7 +404,7 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
 <header class="topbar">
   <div class="brand"><span class="glyph" aria-hidden="true"></span><span class="wm ref">Concentrate</span><span class="x">×</span><span class="or">OpenRouter</span></div>
   <nav class="navlinks" aria-label="Sections">
-    <a href="#run">Run</a><a href="#main">Results</a><a href="#claims">Claims</a><a href="#explained">Benchmarks explained</a>
+    <a href="#run">Run</a><a href="#main">Results</a><a href="#sweeps">Top-10 sweeps</a><a href="#claims">Claims</a><a href="#explained">Benchmarks explained</a>
   </nav>
   <div class="spacer"></div>
   <span class="navtag">gateway-bench · local</span>
@@ -527,6 +529,22 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
               <label class="check"><input type="checkbox" id="incModels" checked> Include single-model reference points</label>
               <div class="small muted hidden" id="incModelsNote">Needs direct OpenAI / Anthropic / Google keys, so it's off for now.</div>
             </div>
+          </div>
+
+          <div class="test" id="tV" data-off="true">
+            <label class="test-h"><input type="checkbox" id="cV">
+              <span><span class="t-name">Volume &amp; concurrency</span><span class="t-new">NEW</span><br><span class="t-desc">N small requests with C in flight at once, per gateway. Success, tails and requests per second actually sustained.</span></span></label>
+            <div class="test-b">
+              <div><span class="lbl">Levels</span><div class="chips" id="volChips">
+                <span class="chip" role="button" tabindex="0" aria-pressed="true" data-n="100" data-c="10">100 · 10 at once</span>
+                <span class="chip" role="button" tabindex="0" aria-pressed="true" data-n="1000" data-c="50">1,000 · 50 at once</span>
+                <span class="chip" role="button" tabindex="0" aria-pressed="false" data-n="10000" data-c="200">10,000 · 200 at once</span></div></div>
+            </div>
+          </div>
+
+          <div class="test" id="tC" data-off="true">
+            <label class="test-h"><input type="checkbox" id="cC">
+              <span><span class="t-name">Prompt cache</span><span class="t-new">NEW</span><br><span class="t-desc">The same ~8k-token prompt 4 times in a row. Does the repeat get cheaper through each gateway?</span></span></label>
           </div>
 
           <div class="test" id="tL" data-off="true">
@@ -656,6 +674,24 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
         <div class="tablewrap"><table id="tableB"></table></div>
       </section>
 
+      <section class="card hidden" id="servedSec">
+        <div class="section-h"><h3>Who actually served it</h3>
+          <div class="desc">The upstream provider each gateway used, from every successful request. Different providers mean different prices, speeds and sometimes compressed (fp4/fp8) weights.</div></div>
+        <div class="mix" id="served"></div>
+      </section>
+
+      <section class="card hidden" id="volumeSec">
+        <div class="section-h"><h3>Volume &amp; concurrency</h3>
+          <div class="desc">Each level sends N small streaming requests with C in flight at once, one gateway at a time. Requests per second = completed requests ÷ wall time.</div></div>
+        <div class="tablewrap"><table id="tableV"></table></div>
+      </section>
+
+      <section class="card hidden" id="cacheSec">
+        <div class="section-h"><h3>Prompt cache</h3>
+          <div class="desc">The same long prompt sent 4 times in a row. Providers bill cached input at a fraction of the price, but only if the gateway keeps repeats on one provider and passes the discount on. Blank = the gateway doesn't report cached tokens.</div></div>
+        <div class="tablewrap"><table id="tableCache"></table></div>
+      </section>
+
       <section class="card hidden" id="loadSec">
         <div class="section-h">
           <h3>Slowest 1% under load</h3>
@@ -670,8 +706,16 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
 </div>
 </div>
 
+<div class="band" id="sweeps">
+  <div class="band-h"><div><div class="eyebrow">02 // Top-10 sweeps</div><h2>Ten models, three times a day, <em>on a schedule.</em></h2>
+    <p>The ten most-used models on both platforms, each run two ways: OpenRouter pinned to the provider Concentrate used (gateway vs gateway), and default routing on both (what a customer gets). Medians over the last 7 days of <code>gbench sweep</code> runs.</p></div>
+    <span class="spacer"></span><a class="btn secondary" id="sweepCsv" href="/api/sweeps.csv" style="text-decoration:none">Download the sheet (CSV)</a></div>
+  <div class="claims-top" id="sweepTop"><span class="skeleton" style="padding:0">Loading…</span></div>
+  <div class="card"><div class="tablewrap" style="padding-top:12px"><table id="tableSweeps"></table></div></div>
+</div>
+
 <div class="band" id="claims">
-  <div class="band-h"><div><div class="eyebrow">02 // Claims check</div><h2>What they say. <em>What we measured.</em></h2>
+  <div class="band-h"><div><div class="eyebrow">03 // Claims check</div><h2>What they say. <em>What we measured.</em></h2>
     <p>Every claim about the API calls themselves (price, fees, speed, model quality) from each homepage, model page and benchmark page: what it means, how we test it, and a verdict from your latest live runs.</p></div>
     <span class="spacer"></span><button class="btn secondary" id="claimsRefresh" type="button">Re-check now</button></div>
   <div class="claims-top" id="claimsTop"><span class="skeleton" style="padding:0">Checking…</span></div>
@@ -682,7 +726,7 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
 </div>
 
 <div class="band" id="explained">
-  <div class="band-h"><div><div class="eyebrow">03 // Benchmarks explained</div><h2>SWE-bench, GPQA and friends, <em>decoded.</em></h2>
+  <div class="band-h"><div><div class="eyebrow">04 // Benchmarks explained</div><h2>SWE-bench, GPQA and friends, <em>decoded.</em></h2>
     <p>What each number on these sites actually measures, how to read it, and whether a gateway can change it.</p></div></div>
   <div class="callout">
     <div class="big">Model benchmarks are <em>not</em> gateway benchmarks.</div>
@@ -768,7 +812,7 @@ function bindChips(root) {
   });
   root.addEventListener("keydown", e => { if ((e.key === " " || e.key === "Enter") && e.target.classList.contains("chip")) { e.preventDefault(); e.target.click(); } });
 }
-["#shapeChips", "#streamChips", "#wlChips", "#qsChips"].forEach(s => bindChips($(s)));
+["#shapeChips", "#streamChips", "#wlChips", "#qsChips", "#volChips"].forEach(s => bindChips($(s)));
 
 function renderForm() {
   const m = state.config.modes[state.mode];
@@ -823,6 +867,8 @@ function readForm() {
     mode: state.mode,
     label: $("#runLabel").value.trim(),
     track_a: $("#cA").checked, track_b: $("#cB").checked, load: $("#cL").checked,
+    volume: $("#cV").checked, volume_levels: pressed("#volChips").map(c => ({ requests: +c.dataset.n, concurrency: +c.dataset.c })),
+    cache_probe: $("#cC").checked,
     quality: $("#cQ").checked, quality_sets: pressed("#qsChips").map(c => c.dataset.qs), quality_items: +$("#qItems").value || 1,
     include_baseline: $("#incBase").checked,
     shapes: pressed("#shapeChips").map(c => c.dataset.shape),
@@ -845,7 +891,8 @@ function readForm() {
 function problems(o) {
   const m = state.config.modes[state.mode];
   const out = [];
-  if (!o.track_a && !o.track_b && !o.load && !o.quality) out.push("Pick at least one test.");
+  if (!o.track_a && !o.track_b && !o.load && !o.quality && !o.volume && !o.cache_probe) out.push("Pick at least one test.");
+  if (o.volume && !o.volume_levels.length) out.push("Volume needs at least one level.");
   if (o.quality && !o.quality_sets.length) out.push("Quality parity needs a downloaded question set.");
   if (o.track_a && (!o.shapes.length || !o.stream_modes.length)) out.push("Speed & fees needs a prompt size and a response mode.");
   if (o.track_b && !o.workloads.length) out.push("Routing quality needs a question set (prepare more with gbench prepare-data).");
@@ -872,6 +919,8 @@ function updateEstimate() {
     n += items * cfgs;
   }
   if (o.load) n += 2 * o.rates.reduce((a, r) => a + r * o.step_duration_s, 0);
+  if (o.volume) n += 2 * o.volume_levels.reduce((a, l) => a + l.requests, 0);
+  if (o.cache_probe) n += 8;
   if (o.quality) n += 2 * $$("#qsChips .chip[aria-pressed='true']").reduce((a, c) => a + Math.min(+c.dataset.items, o.quality_items), 0);
   $("#estimate").textContent = "≈ " + Math.round(n).toLocaleString();
   const p = problems(o);
@@ -880,7 +929,7 @@ function updateEstimate() {
 }
 
 $$(".seg button").forEach(b => b.addEventListener("click", () => { state.mode = b.dataset.mode; renderForm(); loadCatalog(); loadRefModels(); loadQualitySets(); }));
-[["#cA", "#tA"], ["#cB", "#tB"], ["#cL", "#tL"], ["#cQ", "#tQ"]].forEach(([c, t]) =>
+[["#cA", "#tA"], ["#cB", "#tB"], ["#cL", "#tL"], ["#cQ", "#tQ"], ["#cV", "#tV"], ["#cC", "#tC"]].forEach(([c, t]) =>
   $(c).addEventListener("change", () => { $(t).dataset.off = String(!$(c).checked); updateEstimate(); }));
 $$("#reqs, #warm, #maxItems, #rates, #stepDur, #incBase, #incModels, #qItems").forEach(el => el.addEventListener("input", updateEstimate));
 
@@ -1105,7 +1154,7 @@ async function loadRefModels() {
 const isActive = () => state.run && ["queued", "running"].includes(state.run.status);
 function runTitle(r) {
   const o = r.options || {};
-  const tests = [o.track_a && "speed", o.quality && "parity", o.track_b && "routing", o.load && "load"].filter(Boolean).join(" + ");
+  const tests = [o.track_a && "speed", o.quality && "parity", o.volume && "volume", o.cache_probe && "cache", o.track_b && "routing", o.load && "load"].filter(Boolean).join(" + ");
   return o.label || tests || r.id;
 }
 async function loadHistory() {
@@ -1246,7 +1295,7 @@ function renderVerdict() {
     ${s.mode === "demo" ? "<br><span class='muted'>Demo data, not real results.</span>" : ""}`;
 }
 
-const TRACK = { A: "Speed & fees", B: "Routing quality", Q: "Quality parity", load: "Load", billing: "Actual billing" };
+const TRACK = { A: "Speed & fees", B: "Routing quality", Q: "Quality parity", V: "Volume", C: "Prompt cache", load: "Load", billing: "Actual billing" };
 function renderMetrics() {
   const s = state.summary, R = s.ref, V = s.rival, wrap = $("#metrics");
   wrap.innerHTML = "";
@@ -1342,6 +1391,7 @@ function renderCharts() {
   $("#loadSec").classList.toggle("hidden", !s.load);
   $("#qparitySec").classList.toggle("hidden", !s.quality);
   if (s.quality) drawQuality();
+  renderServed(); renderVolume(); renderCache();
   if (s.cdf) drawCdf();
   if (s.frontier) { drawFrontier(); drawMix(); }
   if (s.load) drawLoad();
@@ -1623,6 +1673,88 @@ function renderTables() {
   }
 }
 
+
+/* ---------------- served providers, volume, cache */
+function renderServed() {
+  const s = state.summary, sv = s.served || {};
+  const has = Object.keys(sv).length > 0;
+  $("#servedSec").classList.toggle("hidden", !has);
+  if (!has) return;
+  const shades = [0.95, 0.7, 0.5, 0.35, 0.22];
+  $("#served").innerHTML = [s.ref, s.rival].filter(k => sv[k]).map(k => {
+    const rows = sv[k], total = rows.reduce((a, r) => a + r[1], 0) || 1, col = colorOf(k);
+    return `<div class="mix-row"><div class="who"><span class="dot ${k === s.ref ? "ref" : "rival"}"></span>${nice(k)}</div>
+      <div class="stack">${rows.map((r, i) => `<span title="${esc(r[0])}: ${r[1]}" style="width:${r[1] / total * 100}%;background:${col};opacity:${shades[Math.min(i, 4)]}"></span>`).join("")}</div>
+      <div class="mix-legend">${rows.slice(0, 5).map(r => `<b>${esc(r[0])}</b> ${Math.round(r[1] / total * 100)}%`).join(" · ")}${rows.length > 5 ? ` · +${rows.length - 5} more` : ""}</div></div>`;
+  }).join("") + `<div class="small muted">OpenRouter reports the provider on every response. Concentrate's comes from the "provider/model" it reports as the model.</div>`;
+}
+function renderVolume() {
+  const s = state.summary, v = s.volume || [];
+  $("#volumeSec").classList.toggle("hidden", !v.length);
+  if (!v.length) return;
+  table($("#tableV"), [
+    { h: "Level", f: r => `${r.requests.toLocaleString()} · ${r.concurrency} at once` },
+    { h: "Gateway", f: r => esc(nice(r.system)) },
+    { h: "Success", r: 1, f: r => fmt(r.success, "%") },
+    { h: "TTFT p50", r: 1, f: r => fmt(r.ttft_p50, "ms") },
+    { h: "p90", r: 1, f: r => fmt(r.ttft_p90, "ms") },
+    { h: "p99", r: 1, f: r => fmt(r.ttft_p99, "ms") },
+    { h: "Total p99", r: 1, f: r => fmt(r.e2e_p99, "ms") },
+    { h: "Req/s", r: 1, f: r => r.rps == null ? "–" : r.rps.toFixed(1) },
+    { h: "Wall time", r: 1, f: r => r.wall_s == null ? "–" : r.wall_s.toFixed(0) + " s" },
+    { h: "Errors", f: r => esc(Object.entries(r.errors || {}).map(([k, n]) => `${k} ×${n}`).join(", ") || "none") },
+  ], v, r => rc(s)(r.system));
+}
+function renderCache() {
+  const s = state.summary, c = s.cache || [];
+  $("#cacheSec").classList.toggle("hidden", !c.length);
+  if (!c.length) return;
+  table($("#tableCache"), [
+    { h: "Gateway", f: r => esc(nice(r.system)) },
+    { h: "Calls", r: 1, f: r => r.calls },
+    { h: "Input tokens", r: 1, f: r => Math.round(r.input_tokens).toLocaleString() },
+    { h: "Cached on repeats", r: 1, f: r => r.cached_share == null ? "not reported" : fmt(r.cached_share, "%") },
+    { h: "1st call cost", r: 1, f: r => usd(r.first_cost) },
+    { h: "Repeat cost", r: 1, f: r => usd(r.repeat_cost) },
+    { h: "Providers", f: r => esc((r.providers || []).join(", ") || "–") },
+  ], c, r => rc(s)(r.system));
+}
+
+/* ---------------- top-10 sweeps */
+async function loadSweeps() {
+  let d;
+  try { d = await api("/api/sweeps"); } catch (e) { $("#sweepTop").innerHTML = `<div class="note">${esc(e.message)}</div>`; return; }
+  const sched = d.installed === true ? `<span class="vchip holds">scheduled 3× a day</span>` : d.installed === false
+    ? `<span class="vchip partly">not scheduled</span> <span class="small muted">run <code>gbench schedule install</code></span>` : "";
+  $("#sweepCsv").classList.toggle("hidden", !d.rows.length);
+  if (!d.rows.length) {
+    $("#sweepTop").innerHTML = `${sched} <span class="small muted">No sweep yet. Try <code>gbench sweep --dry-run</code> to see the plan and its cost, then <code>gbench sweep</code>.</span>`;
+    $("#tableSweeps").innerHTML = ""; return;
+  }
+  $("#sweepTop").innerHTML = `${sched} <span class="small muted">${d.n_rows.toLocaleString()} result rows in the last ${d.days} days · TTFT and cost on the ~1.3k-token prompt · volume at the largest level run</span>`;
+  const R = "concentrate", V = "openrouter";
+  const pair = (a, b, unit, lowerBetter = true) => {
+    if (a == null && b == null) return "–";
+    const win = a != null && b != null && a !== b ? ((a < b) === lowerBetter ? "r" : "v") : null;
+    return `<span class="${win === "r" ? "w" : ""}">${unit === "$" ? usd(a) : fmt(a, unit)}</span> <span class="muted">/</span> <span class="${win === "v" ? "w" : ""}">${unit === "$" ? usd(b) : fmt(b, unit)}</span>`;
+  };
+  const ratio = (a, b) => a != null && b ? `${(a / b).toFixed(2)}×` : "–";
+  table($("#tableSweeps"), [
+    { h: "Model", f: r => `<b>${esc(r.model)}</b>` },
+    { h: "Routing", f: r => r.mode === "same_provider" ? "same provider" : "default" },
+    { h: "TTFT p50 C / OR", r: 1, f: r => pair(r[R].ttft_p50, r[V].ttft_p50, "ms") },
+    { h: "TTFT p90 C / OR", r: 1, f: r => pair(r[R].ttft_p90, r[V].ttft_p90, "ms") },
+    { h: "tok/s C / OR", r: 1, f: r => pair(r[R].tps, r[V].tps, "tok/s", false) },
+    { h: "$/req C / OR", r: 1, f: r => pair(r[R].cost_short, r[V].cost_short, "$") },
+    { h: "Cost ratio C÷OR", r: 1, f: r => ratio(r[R].cost_short, r[V].cost_short) },
+    { h: "Long prompt C÷OR", r: 1, f: r => ratio(r[R].cost_long, r[V].cost_long) },
+    { h: "Volume success C / OR", r: 1, f: r => r.vol_level ? pair(r[R].vol_success, r[V].vol_success, "%", false) + ` <span class="muted small">(${esc(r.vol_level.replace("@", " · "))})</span>` : "–" },
+    { h: "Cached C / OR", r: 1, f: r => pair(r[R].cache, r[V].cache, "%", false) },
+    { h: "TTFT p50 by slot C / OR", f: r => ["morning", "afternoon", "evening"].map(sl => `${sl[0].toUpperCase()}: ${pair(r.by_slot[sl][R], r.by_slot[sl][V], "ms")}`).join("<br>") },
+    { h: "Last run", f: r => esc(r.last) },
+  ], d.rows);
+}
+
 /* ---------------- boot */
 (async function boot() {
   try { state.config = await api("/api/config"); }
@@ -1632,6 +1764,7 @@ function renderTables() {
   loadRefModels();
   loadQualitySets();
   loadClaims();
+  loadSweeps();
   await loadHistory();
   const m = location.hash.match(/run=([\w-]+)/);
   if (m) selectRun(m[1]);

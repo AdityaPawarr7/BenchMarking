@@ -15,7 +15,8 @@ from ..pricing import PriceBook
 from ..results import read_results
 
 _META_COLS = ("meta.rep", "meta.warmup", "meta.shape", "meta.workload", "meta.label", "meta.role", "meta.item_id",
-              "meta.target_rps", "meta.set", "baseline", "correct", "cost_usd", "model_served", "output_tps")
+              "meta.target_rps", "meta.set", "meta.level", "meta.requests", "meta.concurrency", "meta.repeat",
+              "provider_served", "cached_tokens", "reasoning_tokens", "baseline", "correct", "cost_usd", "model_served", "output_tps")
 
 
 def clean(obj: Any) -> Any:
@@ -107,7 +108,7 @@ def _catalog_price(catalog: dict, model) -> dict | None:
     if model in catalog:
         return catalog[model]
     tail = model.split("/", 1)[-1]
-    hits = [v for k, v in catalog.items() if k.split("/", 1)[-1] == tail]
+    hits = [v for k, v in catalog.items() if not k.startswith("concentrate:") and k.split("/", 1)[-1] == tail]
     return hits[0] if len(hits) == 1 else None
 
 
@@ -119,6 +120,12 @@ def fill_costs(df: pd.DataFrame, prices: PriceBook, catalog: dict | None) -> pd.
         rep = r.get("cost_reported")
         if rep is not None and rep == rep:
             costs.append(float(rep)); srcs.append("reported"); continue
+        ms, it, ot = r.get("model_served"), r.get("input_tokens"), r.get("output_tokens")
+        key = f"concentrate:{ms}" if isinstance(ms, str) else None
+        if r.get("system") == "concentrate" and key in (catalog or {}) \
+                and it == it and ot == ot and it is not None and ot is not None:
+            pr = catalog[key]         # list price of the provider that actually served it
+            costs.append((it * pr["input"] + ot * pr["output"]) / 1e6); srcs.append("served_provider_list"); continue
         c, src = prices.cost({**r, "cost_reported": None})
         if c is None:
             pr = (_catalog_price(catalog or {}, r.get("model_served"))
@@ -171,6 +178,12 @@ def paired_requests(ta: pd.DataFrame, ref: str, rival: str) -> pd.DataFrame:
 
 
 def _row_list_cost(r: dict, catalog: dict | None):
+    ms = r.get("model_served")
+    if r.get("system") == "concentrate" and isinstance(ms, str) and f"concentrate:{ms}" in (catalog or {}):
+        pr = catalog[f"concentrate:{ms}"]
+        it, ot = r.get("input_tokens"), r.get("output_tokens")
+        if it is not None and ot is not None and it == it and ot == ot:
+            return (it * pr["input"] + ot * pr["output"]) / 1e6
     pr = _catalog_price(catalog or {}, r.get("model_served")) or _catalog_price(catalog or {}, r.get("model_requested"))
     it, ot = r.get("input_tokens"), r.get("output_tokens")
     if pr and it is not None and ot is not None and it == it and ot == ot:
@@ -240,11 +253,11 @@ def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "conc
     out["errors"] = [h for h in health if h["failed"]]
 
     def cost_note(frames: dict) -> str:
-        est = [nm for nm, f in frames.items() if f.cost_source.isin(["catalog_estimate", "list_price"]).any()]
+        est = [nm for nm, f in frames.items() if f.cost_source.isin(["catalog_estimate", "list_price", "served_provider_list"]).any()]
         unk = [nm for nm, f in frames.items() if len(f) and f.cost_usd.isna().all()]
         parts = []
         if est:
-            parts.append(f"{', '.join(est)}: estimated from list price (no billed cost returned)")
+            parts.append(f"{', '.join(est)}: estimated from the list price of the provider that served it (no billed cost returned)")
         if unk:
             parts.append(f"{', '.join(unk)}: cost unknown")
         return "; ".join(parts) or "billed cost reported by each gateway"
@@ -399,6 +412,46 @@ def build_summary(run_dir: str | Path, prices_path: str | Path, ref: str = "conc
             metrics.append(_metric("max_rps", "Max sustained load (p99 within SLO)", "req/s", "higher", "load",
                                    ref, rival, float(ms.get(ref, 0.0)), float(ms.get(rival, 0.0))))
 
+    # ---------------- Which provider actually answered (every test)
+    served = {}
+    for sys_ in (ref, rival):
+        g = df[(df.system == sys_) & (df.ok == True)]  # noqa: E712
+        if len(g):
+            vc = g.provider_served.fillna("not reported").value_counts()
+            served[sys_] = [[str(k), int(v)] for k, v in vc.items()]
+    out["served"] = served
+
+    # ---------------- Volume & concurrency
+    tv = df[df.track == "V"].copy()
+    if not tv.empty:
+        out["volume"] = volume_summary(tv, ref, rival)
+        rows = out["volume"]
+        if rows:
+            top = max(rows, key=lambda r: (r["requests"], r["concurrency"]))
+            lv = f"{top['requests']:,} requests, {top['concurrency']} at once"
+            pick = {r["system"]: r for r in rows if r["level"] == top["level"]}
+            if ref in pick and rival in pick:
+                metrics.append(_metric("vol_success", f"Success rate at {lv}", "%", "higher", "V", ref, rival,
+                                       pick[ref]["success"], pick[rival]["success"]))
+                metrics.append(_metric("vol_ttft_p90", f"Time to first token p90 at {lv}", "ms", "lower", "V", ref, rival,
+                                       pick[ref]["ttft_p90"], pick[rival]["ttft_p90"]))
+                metrics.append(_metric("vol_rps", f"Requests per second sustained at {lv}", "req/s", "higher", "V", ref, rival,
+                                       pick[ref]["rps"], pick[rival]["rps"], note="completed requests ÷ wall time"))
+
+    # ---------------- Prompt cache
+    tc = df[df.track == "C"].copy()
+    if not tc.empty:
+        cs = cache_summary(tc, ref, rival)
+        out["cache"] = cs
+        by = {r["system"]: r for r in cs}
+        if ref in by and rival in by:
+            metrics.append(_metric("cache_share", "Input served from cache on a repeated prompt", "%", "higher", "C", ref, rival,
+                                   by[ref]["cached_share"], by[rival]["cached_share"],
+                                   note="repeats 2-4 of the same long prompt; 0% = no cache discount passed through"))
+            metrics.append(_metric("cache_cost", "Cost of a repeated long prompt", "$", "lower", "C", ref, rival,
+                                   by[ref]["repeat_cost"], by[rival]["repeat_cost"],
+                                   note="mean cost of repeats 2-4" + (f"; {cost_note({ref: tc[tc.system == ref], rival: tc[tc.system == rival]})}")))
+
     # ---------------- Quality parity (same model, same questions, each gateway)
     tq = df[df.track == "Q"].copy()
     if not tq.empty:
@@ -486,7 +539,7 @@ def quality_summary(tq: pd.DataFrame, ref: str, rival: str, published: dict) -> 
             c = frame.cost_usd.dropna()
             cost[lab] = float(c.mean()) if len(c) else None
             tm[lab] = float(frame.e2e_ms.median()) if frame.e2e_ms.notna().any() else None
-            if "cost_source" in frame and frame.cost_source.isin(["catalog_estimate", "list_price"]).any():
+            if "cost_source" in frame and frame.cost_source.isin(["catalog_estimate", "list_price", "served_provider_list"]).any():
                 src.append(lab)
         row["cost_q"], row["time_q"] = cost, tm
         row["cost_note"] = (", ".join(src) + ": estimated from list price") if src else ""
@@ -503,3 +556,59 @@ def quality_summary(tq: pd.DataFrame, ref: str, rival: str, published: dict) -> 
         sets.append(row)
     overall = block(tq.assign(**{"meta.set": tq["meta.set"].astype(str)}), "all")
     return {"sets": sets, "overall": overall, "model": published.get("model"), "published_source": published.get("source")}
+
+
+def _pct(series, q):
+    t = series.dropna()
+    return float(t.quantile(q)) if len(t) else None
+
+
+def _error_kinds(bad: pd.DataFrame) -> dict:
+    """'429', '503', 'timeout', 'network' ... counted."""
+    def kind(r):
+        st = r.get("status")
+        if st == st and st is not None:
+            return str(int(st))
+        e = str(r.get("error") or "")
+        return "timeout" if e.startswith("timeout") or "Timeout" in e else ("network" if e else "unknown")
+    out: dict = {}
+    for r in bad.to_dict("records"):
+        k = kind(r)
+        out[k] = out.get(k, 0) + 1
+    return dict(sorted(out.items(), key=lambda kv: -kv[1]))
+
+
+def volume_summary(tv: pd.DataFrame, ref: str, rival: str) -> list[dict]:
+    rows = []
+    for (level, sys_), g in tv.groupby(["meta.level", "system"]):
+        ok = g[g.ok == True]  # noqa: E712
+        start = g.t_start.min()
+        end = (g.t_start + g.e2e_ms.fillna(0) / 1000).max()
+        wall = float(end - start) if end == end and start == start else None
+        rows.append({"level": str(level), "system": sys_, "requests": int(g["meta.requests"].iloc[0]),
+                     "concurrency": int(g["meta.concurrency"].iloc[0]), "n": int(len(g)), "ok": int(len(ok)),
+                     "success": float(len(ok) / len(g) * 100) if len(g) else None,
+                     "ttft_p50": _pct(ok.ttft_ms, .5), "ttft_p90": _pct(ok.ttft_ms, .9), "ttft_p99": _pct(ok.ttft_ms, .99),
+                     "e2e_p50": _pct(ok.e2e_ms, .5), "e2e_p99": _pct(ok.e2e_ms, .99),
+                     "rps": (len(ok) / wall) if wall else None, "wall_s": wall,
+                     "errors": _error_kinds(g[g.ok != True])})  # noqa: E712
+    order = {ref: 0, rival: 1}
+    return sorted(rows, key=lambda r: (r["requests"], r["concurrency"], order.get(r["system"], 2)))
+
+
+def cache_summary(tc: pd.DataFrame, ref: str, rival: str) -> list[dict]:
+    rows = []
+    for sys_, g in tc.groupby("system"):
+        g = g[g.ok == True].sort_values("meta.repeat")  # noqa: E712
+        if g.empty:
+            continue
+        first, rest = g.iloc[0], g.iloc[1:]
+        it = rest.input_tokens.fillna(0).sum()
+        reported = bool(rest.cached_tokens.notna().any())
+        share = float(rest.cached_tokens.fillna(0).sum() / it * 100) if (it and reported) else None
+        rows.append({"system": sys_, "calls": int(len(g)), "input_tokens": float(g.input_tokens.mean()),
+                     "first_cost": float(first.cost_usd) if first.cost_usd == first.cost_usd else None,
+                     "repeat_cost": float(rest.cost_usd.mean()) if rest.cost_usd.notna().any() else None,
+                     "cached_share": share, "cache_reported": bool(rest.cached_tokens.notna().any()),
+                     "providers": sorted(set(g.provider_served.dropna().astype(str)))})
+    return rows

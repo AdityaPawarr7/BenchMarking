@@ -57,6 +57,21 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--report-dir", default="reports/latest")
     pr.add_argument("--reference", default="concentrate", help="system that significance tests compare against")
 
+    ps = sub.add_parser("sweep", help="top-10 models: speed, volume, cache, quality for this time slot (Concentrate vs OpenRouter)")
+    ps.add_argument("--config", default="configs/top10.yaml")
+    ps.add_argument("--slot", choices=["morning", "afternoon", "evening"], help="default: from the local time")
+    ps.add_argument("--models", help="comma-separated subset, by name (e.g. 'opus,glm 5.3 flash')")
+    ps.add_argument("--modes", help="same_provider,default (default: both)")
+    ps.add_argument("--dry-run", action="store_true", help="show what would run and its estimated cost, send nothing")
+
+    pc = sub.add_parser("price-check", help="per-provider prices for the top-10 models on both gateways")
+    pc.add_argument("--config", default="configs/top10.yaml")
+    pc.add_argument("--csv", default="results/sweeps/price_check.csv")
+
+    psc = sub.add_parser("schedule", help="run `gbench sweep` 3x a day on this Mac (launchd)")
+    psc.add_argument("action", choices=["install", "uninstall", "status", "show"])
+    psc.add_argument("--config", default="configs/top10.yaml")
+
     pu = sub.add_parser("ui", help="local web UI: Concentrate vs OpenRouter (needs '.[ui]')")
     pu.add_argument("--host", default="127.0.0.1")
     pu.add_argument("--port", type=int, default=8765)
@@ -67,6 +82,26 @@ def main(argv: list[str] | None = None) -> int:
         from .ui.server import serve
         serve(args.host, args.port)
         return 0
+
+    if args.cmd == "sweep":
+        from .sweep import run_sweep
+        asyncio.run(run_sweep(args.config, args.slot, _csv(args.models), _csv(args.modes), args.dry_run))
+        return 0
+    if args.cmd == "price-check":
+        from .sweep import price_check
+        rows = price_check(args.config, args.csv)
+        cur = None
+        for r in rows:
+            if r["model"] != cur:
+                cur = r["model"]
+                print(f"\n{cur}  (OpenRouter default: {r['or_default_provider']})")
+            f = lambda v: "   -  " if v is None else f"{v:6.3f}"
+            print(f"  {r['provider']:<12} Concentrate {f(r['conc_in'])}/{f(r['conc_out'])}   OpenRouter {f(r['or_in'])}/{f(r['or_out'])}"
+                  f"   ratio same provider {f(r['conc_vs_or_same_provider'])}   vs OR default {f(r['conc_vs_or_default'])}")
+        return 0
+    if args.cmd == "schedule":
+        from .sweep import schedule
+        return schedule(args.action, args.config)
 
     if args.cmd == "prepare-data":
         from .datasets import prepare_all

@@ -108,6 +108,37 @@ gbench ui                         # open http://127.0.0.1:8765
 - Every run is saved under `results/ui/<run-id>/` (raw JSONL + the exact configs used), so
   `gbench report results/ui/<run-id>` produces the same analysis as a Markdown report.
 
+## Top-10 sweeps, 3x a day
+
+The scheduled benchmark: the 10 most-used models on OpenRouter that Concentrate also serves
+(`configs/top10.yaml`), each run two ways every slot:
+
+- **same provider**: OpenRouter pinned to the provider Concentrate actually used (only the gateway differs)
+- **default**: no pins (what a customer gets)
+
+Every slot runs speed at 4 prompt sizes and volume at 100 and 1,000 requests (10 and 50 in flight).
+Once a day it also runs the prompt-cache probe. Once a week (Sunday evening) it adds 10,000 requests
+(200 in flight) and GPQA Diamond quality parity. Every request records the provider that served it,
+cached and reasoning tokens, and cost. Concentrate's cost is priced at the served provider's list price.
+
+```bash
+gbench price-check              # per-provider prices on both gateways -> results/sweeps/price_check.csv
+gbench sweep --dry-run          # this slot's plan and estimated cost; sends nothing
+gbench sweep --models "glm 5.3 flash" --modes default   # a small real run to try it
+gbench sweep                    # the whole slot (morning/afternoon/evening from the local time)
+gbench schedule install         # run it at 08:47, 13:47 and 19:47 every day (macOS launchd)
+gbench schedule status          # is it installed; how many rows logged
+```
+
+Results land in `results/sweeps/sweep_log.csv` (one row per gateway x test x cell; open it in Sheets)
+and as normal runs in the web UI ("sweep <slot> · <model> · <mode>"). The UI's **Top-10 sweeps**
+section shows 7-day medians per model and slot, with a CSV download. Budget caps in
+`configs/top10.yaml` skip the most expensive units first and log what they skipped.
+
+The Mac has to be on: launchd runs a missed slot once when it wakes. If `results/sweeps/schedule.log`
+shows "Operation not permitted", macOS is blocking background access to the iCloud folder. Either give
+the venv's `python3` Full Disk Access (System Settings > Privacy & Security), or keep the repo outside iCloud.
+
 ## Repo layout
 
 ```
