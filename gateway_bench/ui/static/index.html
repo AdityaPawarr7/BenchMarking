@@ -1132,6 +1132,8 @@ function checkHint(c) {
   if (/does not exist|model_not_found|not a valid model|unknown model|no endpoints found/.test(e))
     h = c.system === "concentrate" ? "Concentrate doesn't know this model name. Set “Concentrate's name for this model” under Model and run again."
       : "This gateway doesn't know this model name. Pick another model or check the ID.";
+  else if (/data policy|guardrail|training violation/.test(e))
+    h = "Your OpenRouter privacy settings block this provider (it may train on prompts). Allow it at openrouter.ai/settings/privacy, or pick another provider under “Served by”.";
   else if (/organization has been disabled|byok|integration/.test(e))
     h = "The upstream provider rejected the account behind this request. On OpenRouter, check Settings → Integrations for a bring-your-own key, or pick another provider.";
   else if (/401|unauthorized|invalid api key|incorrect api key/.test(e)) h = "The API key was rejected. Check it in .env and restart gbench ui.";
