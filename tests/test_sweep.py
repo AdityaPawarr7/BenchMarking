@@ -155,3 +155,18 @@ def test_gateway_checks_and_price_endpoint(tmp_path, monkeypatch):
             "Claude Opus 5.5,anthropic,8,40,4,20,0.4,,2.0,2.0,Google\n")
         d = c.get("/api/price-check").json()
     assert d["rows"][0]["conc_vs_or_same_provider"] == 2.0 and d["rows"][0]["provider"] == "anthropic"
+
+
+def test_concentrate_cost_and_pin_helpers():
+    from gateway_bench.client import CallResult, _body_cost, _usage_details
+    from gateway_bench.config import concentrate_provider
+    r = CallResult(request_id="x", system="concentrate", model_requested="m")
+    chunk = {"usage": {"prompt_tokens": 32, "completion_tokens": 8}, "cost": {"total": 0.0000096, "byok": False}}
+    _usage_details(r, chunk["usage"])
+    _body_cost(r, chunk)
+    assert r.cost_reported == 0.0000096
+    _usage_details(r, {"prompt_tokens": 32, "completion_tokens": 8})      # a later usage-only chunk keeps the cost
+    assert r.cost_reported == 0.0000096
+    assert concentrate_provider("google-vertex", ["anthropic", "vertex"]) == "vertex"
+    assert concentrate_provider("novita", ["runware"]) is None
+    assert concentrate_provider("amazon-bedrock") == "bedrock"

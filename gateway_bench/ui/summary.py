@@ -178,6 +178,13 @@ def paired_requests(ta: pd.DataFrame, ref: str, rival: str) -> pd.DataFrame:
 
 
 def _row_list_cost(r: dict, catalog: dict | None):
+    ps = r.get("provider_served")
+    okey = f"openrouter:{_norm_name(ps)}" if isinstance(ps, str) else None
+    if r.get("system") == "openrouter" and okey in (catalog or {}):
+        pr = catalog[okey]
+        it, ot = r.get("input_tokens"), r.get("output_tokens")
+        if it is not None and ot is not None and it == it and ot == ot:
+            return (it * pr["input"] + ot * pr["output"]) / 1e6
     ms = r.get("model_served")
     if r.get("system") == "concentrate" and isinstance(ms, str) and f"concentrate:{ms}" in (catalog or {}):
         pr = catalog[f"concentrate:{ms}"]
@@ -662,13 +669,13 @@ def gateway_checks(s: dict, state: dict, ref: str = "concentrate", rival: str = 
         sd = sides.get(k) or {}
         r = sd.get("ratio")
         if r is None:
-            vals[k] = "enter the dashboard amount" if k == ref and sd.get("billed") is None else "–"
+            vals[k] = "no billed cost reported" if sd.get("billed") is None else "–"
             st[k] = "na"
         else:
             vals[k] = f"{r:.2f}× list ({sd.get('billed_source')})"
             st[k] = "ok" if r <= 1.01 else ("warn" if r <= 1.1 else "bad")
     out.append({"key": "billed", "check": "Charged ÷ list price", "values": vals, "status": st,
-                "note": "1.00× = billed exactly the provider's list price for the tokens processed. OpenRouter also takes 5.5% when you buy credits."})
+                "note": "Billed cost from each response ÷ the gateway's own published price for the provider that served it. 1.00× = no hidden fees on the request. OpenRouter also takes 5.5% when you buy credits."})
 
     # 3 tokens counted
     m = next((x for x in s.get("metrics", []) if x["key"] == "tokens_counted"), None)

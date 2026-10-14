@@ -40,8 +40,9 @@ class System:
     headers: dict[str, str] = field(default_factory=dict)
     extra_body: dict[str, Any] = field(default_factory=dict)
     timeout_s: float = 180.0
-    # Body fragment that pins the upstream provider; "{provider}" is replaced with its slug.
-    pin: dict[str, Any] | None = None
+    # How to pin the upstream provider: a body fragment where "{provider}" is replaced with the slug
+    # (OpenRouter), or the string "model_prefix" to send "<provider>/<model>" as the model (Concentrate).
+    pin: Any = None
 
     @property
     def api_key(self) -> str:
@@ -79,6 +80,25 @@ def load_systems(path: str | Path = "configs/systems.yaml") -> dict[str, System]
             raise ValueError(f"duplicate system name: {sys_.name}")
         systems[sys_.name] = sys_
     return systems
+
+
+# Concentrate provider name -> OpenRouter provider slug. Used to pin both gateways to the same upstream.
+PROVIDER_SLUGS = {
+    "vertex": "google-vertex", "ai-studio": "google-ai-studio", "bedrock": "amazon-bedrock", "azure": "azure",
+    "zai": "z-ai", "xai": "x-ai", "moonshot": "moonshotai", "alibaba": "alibaba", "openai": "openai",
+    "anthropic": "anthropic", "deepseek": "deepseek", "deepinfra": "deepinfra", "novita": "novita",
+    "fireworks": "fireworks", "baseten": "baseten", "together": "together", "cloudflare": "cloudflare",
+    "crusoe": "crusoe", "wafer": "wafer", "modal": "modal", "nebius": "nebius", "runware": "runware",
+    "azure-fw": "azure",
+}
+
+
+def concentrate_provider(or_slug: str, available: list[str] | None = None) -> str | None:
+    """OpenRouter provider slug -> Concentrate's name for the same provider (None if Concentrate lacks it)."""
+    cands = [c for c, o in PROVIDER_SLUGS.items() if o == or_slug] + [or_slug]
+    if available is None:
+        return cands[0]
+    return next((c for c in cands if c in available), None)
 
 
 def fill_pin(pin: Any, provider: str) -> Any:

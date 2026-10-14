@@ -61,7 +61,9 @@ def test_model_pin_and_direct_baseline(monkeypatch):
     assert orr.models[alias] == "deepseek/deepseek-chat"
     assert orr.extra_body["provider"] == {"only": ["novita"], "allow_fallbacks": False}
     assert "provider" not in systems["openrouter"].extra_body          # Track B systems untouched
-    assert any("concentrate" in w for w in info["warnings"])            # no pin configured yet
+    conc = next(s for s in gw if s.name == "concentrate")
+    assert conc.models[alias].startswith("novita/")                     # Concentrate pins by "<provider>/<model>"
+    assert not info["warnings"]
     assert base.name == "direct-novita" and base.models[alias] == "deepseek/deepseek-chat"  # Novita keeps author/
     assert base.base_url == "https://api.novita.ai/openai/v1"
 

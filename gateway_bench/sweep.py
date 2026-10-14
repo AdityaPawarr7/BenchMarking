@@ -28,15 +28,7 @@ SWEEP_DIR = Path("results") / "sweeps"
 LOG_CSV = SWEEP_DIR / "sweep_log.csv"
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
-# Concentrate provider name -> OpenRouter provider slug (for pinning OpenRouter to the same upstream)
-PROVIDER_SLUGS = {
-    "vertex": "google-vertex", "ai-studio": "google-ai-studio", "bedrock": "amazon-bedrock", "azure": "azure",
-    "zai": "z-ai", "xai": "x-ai", "moonshot": "moonshotai", "alibaba": "alibaba", "openai": "openai",
-    "anthropic": "anthropic", "deepseek": "deepseek", "deepinfra": "deepinfra", "novita": "novita",
-    "fireworks": "fireworks", "baseten": "baseten", "together": "together", "cloudflare": "cloudflare",
-    "crusoe": "crusoe", "wafer": "wafer", "modal": "modal", "nebius": "nebius", "runware": "runware",
-    "azure-fw": "azure",
-}
+from .config import PROVIDER_SLUGS  # noqa: E402  (Concentrate provider name -> OpenRouter slug)
 
 CSV_COLS = ["sweep_id", "date", "local_time", "weekday", "slot", "model", "mode", "pinned_to", "gateway", "test", "cell",
             "n", "ok", "success_pct", "ttft_p50_ms", "ttft_p90_ms", "ttft_p99_ms", "first_answer_p50_ms",
@@ -238,21 +230,23 @@ async def run_unit(u: dict, slot: str, sweep_id: str, log=print) -> tuple[str | 
     m = u["model"]
     pin = None
     if u["mode"] == "same_provider":
+        # Pin BOTH gateways to one upstream: the provider Concentrate picks by default when OpenRouter also
+        # has it, otherwise the cheapest provider both offer (by Concentrate's list price).
+        try:
+            tags = {e["tag"].split("/")[0] for e in or_endpoints(m["openrouter"])}
+        except Exception as e:  # noqa: BLE001
+            tags = set()
+            log(f"[warn] {m['name']}: couldn't read OpenRouter's providers ({e})")
+        prices = (m.get("ref") or {}).get("provider_prices") or {}
+        common = sorted((c for c in prices if PROVIDER_SLUGS.get(c, c) in tags), key=lambda c: blended(prices[c]))
         prov = await _served_provider_now(m["concentrate"])
-        if prov:
-            slug = PROVIDER_SLUGS.get(prov, prov)
-            try:
-                tags = {e["tag"].split("/")[0] for e in or_endpoints(m["openrouter"])}
-            except Exception as e:  # noqa: BLE001
-                tags = set()
-                log(f"[warn] {m['name']}: couldn't read OpenRouter's providers ({e})")
-            if slug in tags or not tags:
-                pin = slug
-            else:
-                log(f"[warn] {m['name']}: Concentrate served it from {prov}, which OpenRouter doesn't offer; "
-                    "running unpinned and recording it")
+        if prov and (PROVIDER_SLUGS.get(prov, prov) in tags or not tags):
+            pin = PROVIDER_SLUGS.get(prov, prov)
+        elif common:
+            pin = PROVIDER_SLUGS.get(common[0], common[0])
+            log(f"[info] {m['name']}: Concentrate's default ({prov or 'unknown'}) isn't on OpenRouter; pinning both to {common[0]}")
         else:
-            log(f"[warn] {m['name']}: Concentrate didn't say which provider it used; running unpinned")
+            log(f"[warn] {m['name']}: no provider offered by both gateways; running unpinned")
     opts = server.RunOptions(
         mode="live", label=f"sweep {slot} · {m['name']} · {u['mode'].replace('_', ' ')}",
         track_a=True, track_b=False, load=False, include_baseline=False,
@@ -268,7 +262,7 @@ async def run_unit(u: dict, slot: str, sweep_id: str, log=print) -> tuple[str | 
     run = server.Run(opts)
     server.RUNS[run.id] = run
     run.save()
-    log(f"== {m['name']} · {u['mode']}" + (f" (OpenRouter pinned to {pin})" if pin else "") + f" · run {run.id}")
+    log(f"== {m['name']} · {u['mode']}" + (f" (both pinned to {pin})" if pin else "") + f" · run {run.id}")
     await server.execute(run)
     log(f"   {run.status}" + (f": {run.error}" if run.error else ""))
     return run.id, pin

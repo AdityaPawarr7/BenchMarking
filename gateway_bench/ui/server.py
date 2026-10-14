@@ -22,7 +22,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from ..config import System, fill_pin, load_systems, load_yaml
+from ..config import System, concentrate_provider, fill_pin, load_systems, load_yaml
 from .claims import build_claims, find_published_scores, parse_endpoints, snapshot_scores
 from .summary import build_summary, clean, readable_error
 
@@ -208,7 +208,17 @@ def resolve_model_setup(o: "RunOptions", systems: dict[str, System], mode: str, 
         s_.models[alias] = ref_id if s_.name == REF else o.model
         info["ids"][s_.name] = s_.models[alias]
         if o.upstream:
-            if s_.pin:
+            if s_.pin == "model_prefix":
+                avail = (ref_entry or {}).get("providers") if s_.name == REF else None
+                cp = concentrate_provider(o.upstream, avail or None)
+                if cp:
+                    s_.models[alias] = f"{cp}/{s_.models[alias]}"
+                    info["ids"][s_.name] = s_.models[alias]
+                else:
+                    w = f"{s_.name} doesn't offer {o.model} from {o.upstream}, so it routes as it normally would"
+                    info["warnings"].append(w)
+                    log(f"[warn] {w}")
+            elif s_.pin:
                 s_.extra_body = {**s_.extra_body, **fill_pin(s_.pin, o.upstream)}
             else:
                 w = f"{s_.name} has no provider pin configured, so it may serve {o.model} from a different provider"
@@ -806,6 +816,9 @@ def _summary_for(run_id: str) -> dict:
     catalog = build_catalog(mode)
     billing = json.loads((run_dir / "billing.json").read_text()) if (run_dir / "billing.json").exists() else {}
     published = json.loads((run_dir / "published.json").read_text()) if (run_dir / "published.json").exists() else {}
+    for e in reversed(published.get("endpoints") or []):       # OpenRouter's price per provider for this model
+        if e.get("input") is not None and e.get("output") is not None and e.get("provider"):
+            catalog[f"openrouter:{re.sub(r'[^a-z0-9]', '', str(e['provider']).lower())}"] = {"input": e["input"], "output": e["output"]}
     summary = build_summary(run_dir, prices, REF, RIVAL, load_cfg, catalog=catalog, billing=billing, published=published)
     summary["published"] = published
     summary["mode"] = mode
@@ -903,7 +916,7 @@ def claims(refresh: bool = False):
                 "or_ttft_p50": (mv.get("ttft_p50") or {}).get(RIVAL), "ref_ttft_p50": (mv.get("ttft_p50") or {}).get(REF),
                 "or_tps_p50": (mv.get("tps") or {}).get(RIVAL), "ref_tps_p50": (mv.get("tps") or {}).get(REF),
                 "or_reported_vs_list": (rv["reported_total"] / rv["list_cost"]) if rv.get("reported_total") and rv.get("list_cost") else None,
-                "billing": {"ref_ratio": (sides.get(REF) or {}).get("ratio") if (sides.get(REF) or {}).get("billed_source") == "entered" else None,
+                "billing": {"ref_ratio": (sides.get(REF) or {}).get("ratio"),
                             "note": (sm.get("billing") or {}).get("note")},
                 "published_endpoints": (sm.get("published") or {}).get("endpoints") or []}
         except Exception as e:  # noqa: BLE001

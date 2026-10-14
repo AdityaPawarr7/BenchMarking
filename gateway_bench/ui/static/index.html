@@ -635,7 +635,7 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
 
       <section class="card hidden" id="checksSec">
         <div class="section-h"><h3>Gateway checks</h3>
-          <div class="desc">The six things standard benchmarks miss, for this run. <span class="st ok"></span>fine <span class="st warn"></span>worth a look <span class="st bad"></span>problem <span class="st"></span>not measured in this run.</div></div>
+          <div class="desc">The six things standard benchmarks miss, for this run. Charged prices come straight from each gateway's response. <span class="st ok"></span>fine <span class="st warn"></span>worth a look <span class="st bad"></span>problem <span class="st"></span>not measured in this run.</div></div>
         <div class="tablewrap"><table id="tableChecks"></table></div>
       </section>
 
@@ -665,7 +665,7 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
         <div class="fair">
           <div class="fair-col">
             <h4>What each gateway actually charged</h4>
-            <p class="small muted">Enter the amount each dashboard charged <b>for this run</b>. Easiest: note your balance before and after, or use keys only for benchmarking. Concentrate doesn't return billed cost per request, so this is the only way to see its real price.</p>
+            <p class="small muted">Both gateways now report what they billed on every request (Concentrate's <code>cost.total</code>, OpenRouter's <code>usage.cost</code>), so this fills in on its own. Only enter dashboard amounts to cross-check, for example to include OpenRouter's 5.5% credit-purchase fee.</p>
             <div class="billform">
               <label><span><span class="dot ref"></span> Concentrate charged ($)</span><input type="number" step="0.01" min="0" id="billRef" placeholder="from its dashboard"></label>
               <label class="rv"><span><span class="dot rival"></span> OpenRouter charged ($)</span><input type="number" step="0.01" min="0" id="billRival" placeholder=""></label>
@@ -2048,7 +2048,7 @@ async function loadClaims(refresh = false) {
   const x = v => v == null ? "–" : v.toFixed(2) + "×";
   $("#stRefTtft").textContent = fmt(st.ref_ttft_p50, "ms"); $("#stOrTtft").textContent = fmt(st.or_ttft_p50, "ms");
   $("#stRefBill").textContent = x(st.ref_billed_ratio); $("#stOrBill").textContent = x(st.or_billed_ratio);
-  $(".versus").title = st.run_id ? `From live run ${st.run_id}${st.model ? " (" + st.model + ")" : ""}. Charged ÷ list for Concentrate needs the dashboard amount entered under Fairness checks.` : "Run a live Speed & fees test to fill these in.";
+  $(".versus").title = st.run_id ? `From live run ${st.run_id}${st.model ? " (" + st.model + ")" : ""}. Charged ÷ list uses the cost each gateway reports per request.` : "Run a live Speed & fees test to fill these in.";
   const tally = who => {
     const cs = c.claims.filter(x => x.who === who && !["info", "not tested"].includes(x.verdict));
     return cs.length ? `${cs.filter(x => x.verdict === "holds").length} of ${cs.length} tested hold` : "not tested yet";

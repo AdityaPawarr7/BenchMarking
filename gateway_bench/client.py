@@ -53,7 +53,9 @@ def build_headers(system: System) -> dict[str, str]:
 def _usage_details(res: "CallResult", usage: dict[str, Any]) -> None:
     res.input_tokens = usage.get("prompt_tokens")
     res.output_tokens = usage.get("completion_tokens")
-    res.cost_reported = _extract_cost(usage)
+    c = _extract_cost(usage)
+    if c is not None:
+        res.cost_reported = c
     ptd = usage.get("prompt_tokens_details") or {}
     cached = ptd.get("cached_tokens")
     if cached is None:
@@ -74,6 +76,16 @@ def _served_provider(res: "CallResult", data: dict[str, Any]) -> None:
         res.provider_served = p
     elif isinstance(res.model_served, str) and "/" in res.model_served and res.system == "concentrate":
         res.provider_served = res.model_served.split("/", 1)[0]
+
+
+def _body_cost(res: "CallResult", data: dict[str, Any]) -> None:
+    """Concentrate bills per request in a top-level `cost` object ({"total": 0.0000192, ...});
+    OpenRouter puts it in usage.cost. Take whichever is present."""
+    c = data.get("cost")
+    if isinstance(c, dict) and isinstance(c.get("total"), (int, float)):
+        res.cost_reported = float(c["total"])
+    elif isinstance(c, (int, float)) and not isinstance(c, bool):
+        res.cost_reported = float(c)
 
 
 def _extract_cost(usage: dict[str, Any] | None) -> float | None:
@@ -164,6 +176,12 @@ async def _do_plain(client, url, headers, body, res: CallResult, t0: float, time
     if choices:
         res.text = (choices[0].get("message") or {}).get("content") or ""
     _usage_details(res, data.get("usage") or {})
+    _body_cost(res, data)
+    if res.cost_reported is None and r.headers.get("x-concentrate-cost"):
+        try:
+            res.cost_reported = float(r.headers["x-concentrate-cost"])
+        except ValueError:
+            pass
     _served_provider(res, data)
     res.meta["gateway_headers"] = _interesting_headers(r.headers)
     res.ok = True
@@ -208,6 +226,8 @@ async def _do_stream(client, url, headers, body, res: CallResult, t0: float, tim
             usage = chunk.get("usage")
             if usage:
                 _usage_details(res, usage)
+            if chunk.get("cost") is not None:
+                _body_cost(res, chunk)
     res.e2e_ms = (time.perf_counter() - t0) * 1000
     res.text = "".join(parts)
     res.ok = True

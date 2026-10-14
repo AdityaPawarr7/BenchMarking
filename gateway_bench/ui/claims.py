@@ -177,7 +177,9 @@ def parse_endpoints(eps: list[dict]) -> list[dict]:
         if lat is not None and lat < 60:        # seconds -> ms
             lat *= 1000
         up = _num(ep.get("uptime_last_30m"))
-        rows.append({"provider": ep.get("provider_name") or ep.get("tag"),
+        pr = ep.get("pricing") or {}
+        rows.append({"input": (_num(pr.get("prompt")) or 0) * 1e6 if pr.get("prompt") is not None else None,
+                     "output": (_num(pr.get("completion")) or 0) * 1e6 if pr.get("completion") is not None else None,"provider": ep.get("provider_name") or ep.get("tag"),
                      "tag": (ep.get("tag") or ep.get("provider_name") or "").split("/")[0].lower(),
                      "ttft_p50_ms": lat, "tps_p50": _num(ep.get("throughput_last_30m")),
                      "uptime_30m": (up * 100 if up is not None and up <= 1 else up),
@@ -238,12 +240,12 @@ def build_claims(ctx: dict) -> dict:
         ev.append({"label": f"Billing check (run {speed.get('run_id')})",
                    "value": f"Concentrate charged {bill['ref_ratio']:.2f}× list price for the tokens it processed"
                             + (f" — {bill['note']}" if bill.get("note") else "")
-                            + ". Only meaningful if the dashboard amount covers exactly that run."})
+                            + " (billed cost reported on each response)."})
     add(id="conc_nofees", who="concentrate", claim="No fees. Zero markup: you pay no more than going direct.", source=CONC_URL,
         means="The per-token price through Concentrate should equal the provider's own list price, with nothing added.",
         how="1) Compare Concentrate's list prices with OpenRouter's (which pass provider list prices through) for every "
-            "model on both. 2) Fairness checks: enter what the dashboard charged for one run and compare with list price "
-            "for the tokens processed (Concentrate doesn't return per-request cost).",
+            "model on both. 2) Read the billed cost Concentrate returns on every response (cost.total) and compare "
+            "with its list price for the provider that served it.",
         found=found, verdict=v, evidence=ev)
 
     # Concentrate's claim about OpenRouter
