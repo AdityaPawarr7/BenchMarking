@@ -811,6 +811,9 @@ def _summary_for(run_id: str) -> dict:
     summary["mode"] = mode
     summary["models"] = st.get("models") or {}
     summary["options"] = st.get("options") or {}
+    if not summary.get("empty"):
+        from .summary import gateway_checks
+        summary["gateway_checks"] = clean(gateway_checks(summary, st, REF, RIVAL))
     return summary
 
 
@@ -1026,11 +1029,57 @@ def sweeps(days: int = 7):
         for sl in ("morning", "afternoon", "evening"):
             by_slot[sl] = {gw: med([num(x.get("ttft_p50_ms")) for x in g["cells"].get(("speed", "short", gw), []) if x.get("slot") == sl])
                            for gw in (REF, RIVAL)}
+            by_slot[sl]["cost"] = {gw: med([num(x.get("cost_per_req_usd")) for x in g["cells"].get(("speed", "short", gw), []) if x.get("slot") == sl])
+                                   for gw in (REF, RIVAL)}
         row["by_slot"] = by_slot
         out.append(row)
     order = [m.get("name") for m in (load_yaml(ROOT / "configs/top10.yaml").get("models") or [])] if (ROOT / "configs/top10.yaml").exists() else []
     out.sort(key=lambda r: (order.index(r["model"]) if r["model"] in order else 99, r["mode"]))
     return clean({"rows": out, "installed": installed, "csv": "/api/sweeps.csv", "n_rows": len(rows), "days": days})
+
+
+_PRICE: dict[str, Any] = {"running": False, "error": None}
+
+
+def _read_price_csv() -> tuple[list[dict], float | None]:
+    import csv as _csv
+    path = ROOT / "results" / "sweeps" / "price_check.csv"
+    if not path.exists():
+        return [], None
+    with open(path, newline="") as f:
+        rows = list(_csv.DictReader(f))
+    for r in rows:
+        for k, v in list(r.items()):
+            if k not in ("model", "provider", "or_quant", "or_default_provider"):
+                try:
+                    r[k] = float(v) if v not in ("", None) else None
+                except ValueError:
+                    pass
+    return rows, path.stat().st_mtime
+
+
+@app.get("/api/price-check")
+def price_check_get():
+    rows, t = _read_price_csv()
+    return clean({"rows": rows, "checked": t, "running": _PRICE["running"], "error": _PRICE["error"]})
+
+
+@app.post("/api/price-check")
+def price_check_run():
+    if _PRICE["running"]:
+        raise HTTPException(409, "Already checking.")
+    from ..sweep import price_check
+
+    def work():
+        _PRICE.update(running=True, error=None)
+        try:
+            price_check(str(ROOT / "configs/top10.yaml"), str(ROOT / "results/sweeps/price_check.csv"), log=lambda m: None)
+        except Exception as e:  # noqa: BLE001
+            _PRICE["error"] = str(e)
+        finally:
+            _PRICE["running"] = False
+    threading.Thread(target=work, daemon=True).start()
+    return {"ok": True}
 
 
 @app.get("/api/sweeps.csv")

@@ -135,3 +135,23 @@ def test_plist_escapes_paths():
     from gateway_bench.sweep import plist_text
     t = plist_text({"morning": "08:47"}, Path("/Users/a/Adi's Mac & Co/Bench"), "/x/gbench", Path("/tmp/l.log"))
     assert "Adi's Mac &amp; Co" in t and "<integer>8</integer>" in t and "<integer>47</integer>" in t
+
+
+def test_gateway_checks_and_price_endpoint(tmp_path, monkeypatch):
+    monkeypatch.chdir(REPO)
+    from gateway_bench.ui import server
+    monkeypatch.setattr(server, "RUNS_DIR", tmp_path / "ui")
+    with TestClient(server.app) as c:
+        rid = c.post("/api/runs", json={"mode": "demo", "track_b": False, "requests_per_cell": 3, "warmup": 0,
+                                        "shapes": ["tiny"], "cache_probe": True}).json()["id"]
+        _wait(c, rid)
+        res = c.get(f"/api/runs/{rid}/results").json()
+        assert [r["key"] for r in res["gateway_checks"]] == ["provider", "billed", "tokens", "cache", "params", "slot"]
+        assert all(set(r["values"]) == {"concentrate", "openrouter"} for r in res["gateway_checks"])
+        monkeypatch.setattr(server, "ROOT", tmp_path)
+        (tmp_path / "results" / "sweeps").mkdir(parents=True)
+        (tmp_path / "results" / "sweeps" / "price_check.csv").write_text(
+            "model,provider,conc_in,conc_out,or_in,or_out,or_cache_read,or_quant,conc_vs_or_same_provider,conc_vs_or_default,or_default_provider\n"
+            "Claude Opus 5.5,anthropic,8,40,4,20,0.4,,2.0,2.0,Google\n")
+        d = c.get("/api/price-check").json()
+    assert d["rows"][0]["conc_vs_or_same_provider"] == 2.0 and d["rows"][0]["provider"] == "anthropic"

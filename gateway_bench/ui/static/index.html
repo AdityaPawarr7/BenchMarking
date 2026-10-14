@@ -396,6 +396,24 @@ tr.is-rival td:first-child { box-shadow: inset 3px 0 0 var(--rival); font-family
 .gcard .gw { font-size: 12.5px; color: var(--text-3); }
 .gcard .gw b { color: var(--text-2); font-weight: 600; }
 
+
+/* ---------- at a glance + gateway checks */
+.glance { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0; border-top: 1px solid var(--border); border-left: 1px solid var(--border); }
+.tile { background: var(--surface); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 18px; display: flex; flex-direction: column; gap: 8px; min-height: 150px; }
+.tile .k { font: 500 10.5px var(--mono); letter-spacing: 1.8px; text-transform: uppercase; color: var(--text-3); }
+.tile .big { font-size: 22px; font-weight: 600; letter-spacing: -.035em; line-height: 1.15; }
+.tile .sub { font-size: 12.5px; color: var(--text-2); }
+.tile a.more { font: 500 11px var(--mono); letter-spacing: 1.2px; text-transform: uppercase; margin-top: auto; }
+.flow { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 18px; }
+.flow .step { border: 1px solid var(--border); padding: 12px 14px; font-size: 12.5px; color: var(--text-2); }
+.flow .step b { display: block; color: var(--text); font-size: 13.5px; margin-bottom: 4px; letter-spacing: -.02em; }
+.flow .step .n { font: 500 10.5px var(--mono); color: var(--ref-ink); letter-spacing: 1.6px; }
+.st { display: inline-block; width: 8px; height: 8px; margin-right: 7px; vertical-align: 1px; border-radius: 50%; background: var(--text-3); }
+.st.ok { background: var(--good); } .st.warn { background: var(--warn); border-radius: 0; } .st.bad { background: var(--bad); border-radius: 0; transform: rotate(45deg); }
+#tableChecks td { white-space: normal; vertical-align: top; }
+#tableChecks td.gnote { color: var(--text-3); font-size: 12px; max-width: 360px; }
+#tablePrice td { font-size: 12px; }
+details.pdet summary { cursor: pointer; color: var(--text-3); font-size: 12px; }
 footer.foot { border-top: 1px solid var(--border); margin-top: 72px; padding: 28px 32px 40px; color: var(--text-3); font-size: 12.5px; }
 footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: space-between; padding: 0; }
 </style>
@@ -404,7 +422,7 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
 <header class="topbar">
   <div class="brand"><span class="glyph" aria-hidden="true"></span><span class="wm ref">Concentrate</span><span class="x">×</span><span class="or">OpenRouter</span></div>
   <nav class="navlinks" aria-label="Sections">
-    <a href="#run">Run</a><a href="#main">Results</a><a href="#sweeps">Top-10 sweeps</a><a href="#claims">Claims</a><a href="#explained">Benchmarks explained</a>
+    <a href="#glance">Overview</a><a href="#run">Run</a><a href="#main">Results</a><a href="#sweeps">Top-10 sweeps</a><a href="#claims">Claims</a><a href="#explained">Benchmarks explained</a>
   </nav>
   <div class="spacer"></div>
   <span class="navtag">gateway-bench · local</span>
@@ -442,6 +460,19 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
     </div>
   </div>
 </section>
+
+
+<div class="band" id="glance">
+  <div class="band-h"><div><div class="eyebrow">00 // At a glance</div><h2>What's happening, <em>on one page.</em></h2>
+    <p>Where things stand right now: the schedule, the latest run, the price gaps we've found and how the claims hold up. Each tile links to the detail below.</p></div></div>
+  <div class="glance" id="glanceTiles"><div class="tile"><span class="k">Loading</span></div></div>
+  <div class="flow">
+    <div class="step"><span class="n">01 · RUN</span><b>Head to head</b>Same model, same prompts through both gateways: speed, cost, quality, volume, caching. Plus six gateway checks per run.</div>
+    <div class="step"><span class="n">02 · SCHEDULE</span><b>Top-10 sweeps</b>The 10 most-used models, 3 times a day, pinned and unpinned, logged to a sheet. Plus a live price check per provider.</div>
+    <div class="step"><span class="n">03 · CHECK</span><b>Claims</b>Each site's claims about price, fees, speed and quality, tested against what we measured.</div>
+    <div class="step"><span class="n">04 · EXPLAIN</span><b>Benchmarks explained</b>What SWE-bench, GPQA and the rest measure, and why a gateway can only lose points on them.</div>
+  </div>
+</div>
 
 <div class="band" id="run">
   <div class="band-h"><div><div class="eyebrow">01 // Head to head</div><h2>Same model. <em>Two gateways.</em></h2>
@@ -602,6 +633,12 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
         </div>
       </section>
 
+      <section class="card hidden" id="checksSec">
+        <div class="section-h"><h3>Gateway checks</h3>
+          <div class="desc">The six things standard benchmarks miss, for this run. <span class="st ok"></span>fine <span class="st warn"></span>worth a look <span class="st bad"></span>problem <span class="st"></span>not measured in this run.</div></div>
+        <div class="tablewrap"><table id="tableChecks"></table></div>
+      </section>
+
       <section class="card hidden" id="errorsSec">
         <div class="section-h"><h3>Errors</h3>
           <div class="desc">Requests that failed, grouped by test and system. Failed requests are left out of every speed and accuracy number.</div></div>
@@ -712,6 +749,12 @@ footer.foot .band { display: flex; gap: 20px; flex-wrap: wrap; justify-content: 
     <span class="spacer"></span><a class="btn secondary" id="sweepCsv" href="/api/sweeps.csv" style="text-decoration:none">Download the sheet (CSV)</a></div>
   <div class="claims-top" id="sweepTop"><span class="skeleton" style="padding:0">Loading…</span></div>
   <div class="card"><div class="tablewrap" style="padding-top:12px"><table id="tableSweeps"></table></div></div>
+  <div class="card" style="margin-top:20px">
+    <div class="section-h"><h3>Price check: same model, same provider, both gateways</h3>
+      <div class="controls"><span class="small muted" id="priceWhen"></span><button class="btn secondary" id="priceRun" type="button">Check prices now</button></div>
+      <div class="desc">List prices per provider from Concentrate's model list and OpenRouter's endpoint list, blended 4:1 input:output. A ratio above 1.00× means Concentrate lists that provider higher. "vs OpenRouter default" compares with the cheapest endpoint OpenRouter would route to unpinned.</div></div>
+    <div class="tablewrap"><table id="tablePrice"></table></div>
+  </div>
 </div>
 
 <div class="band" id="claims">
@@ -1159,6 +1202,7 @@ function runTitle(r) {
 }
 async function loadHistory() {
   const runs = await api("/api/runs");
+  state.runs = runs; renderGlance();
   const ul = $("#history");
   if (!runs.length) { ul.innerHTML = `<li class="skeleton">No runs yet.</li>`; return; }
   ul.innerHTML = "";
@@ -1274,6 +1318,7 @@ async function loadResults() {
   const lm = mi.model || ids[s.ref];
   $("#latModel").innerHTML = lm ? ` Model: <b>${esc(lm)}</b>${mi.upstream ? `, served by ${esc(mi.upstream)}` : ", provider not pinned"}.` : "";
   renderErrors();
+  renderChecksPanel();
   renderFairness();
   renderVerdict(); renderMetrics(); setupSelectors(); renderCharts(); renderTables();
 }
@@ -1724,6 +1769,7 @@ function renderCache() {
 async function loadSweeps() {
   let d;
   try { d = await api("/api/sweeps"); } catch (e) { $("#sweepTop").innerHTML = `<div class="note">${esc(e.message)}</div>`; return; }
+  state.sweeps = d; renderGlance();
   const sched = d.installed === true ? `<span class="vchip holds">scheduled 3× a day</span>` : d.installed === false
     ? `<span class="vchip partly">not scheduled</span> <span class="small muted">run <code>gbench schedule install</code></span>` : "";
   $("#sweepCsv").classList.toggle("hidden", !d.rows.length);
@@ -1751,8 +1797,101 @@ async function loadSweeps() {
     { h: "Volume success C / OR", r: 1, f: r => r.vol_level ? pair(r[R].vol_success, r[V].vol_success, "%", false) + ` <span class="muted small">(${esc(r.vol_level.replace("@", " · "))})</span>` : "–" },
     { h: "Cached C / OR", r: 1, f: r => pair(r[R].cache, r[V].cache, "%", false) },
     { h: "TTFT p50 by slot C / OR", f: r => ["morning", "afternoon", "evening"].map(sl => `${sl[0].toUpperCase()}: ${pair(r.by_slot[sl][R], r.by_slot[sl][V], "ms")}`).join("<br>") },
+    { h: "$/req by slot C / OR", f: r => ["morning", "afternoon", "evening"].map(sl => `${sl[0].toUpperCase()}: ${pair((r.by_slot[sl].cost || {})[R], (r.by_slot[sl].cost || {})[V], "$")}`).join("<br>") },
     { h: "Last run", f: r => esc(r.last) },
   ], d.rows);
+}
+
+
+/* ---------------- gateway checks (per run) */
+function renderChecksPanel() {
+  const s = state.summary, rows = s.gateway_checks || [];
+  $("#checksSec").classList.toggle("hidden", !rows.length);
+  if (!rows.length) return;
+  const cell = (r, k) => `<span class="st ${r.status[k] || ""}"></span>${esc(r.values[k] || "–")}`;
+  $("#tableChecks").innerHTML = `<thead><tr><th>Check</th><th><span class="dot ref"></span> ${nice(s.ref)}</th><th><span class="dot rival"></span> ${nice(s.rival)}</th><th>What it means</th></tr></thead><tbody>` +
+    rows.map(r => `<tr><td><b>${esc(r.check)}</b></td><td>${cell(r, s.ref)}</td><td>${cell(r, s.rival)}</td><td class="gnote">${esc(r.note)}</td></tr>`).join("") + `</tbody>`;
+  state.lastChecks = rows; renderGlance();
+}
+
+/* ---------------- price check */
+async function loadPrice() {
+  let d;
+  try { d = await api("/api/price-check"); } catch (e) { return; }
+  state.price = d;
+  $("#priceRun").disabled = d.running;
+  $("#priceRun").textContent = d.running ? "Checking…" : "Check prices now";
+  $("#priceWhen").textContent = d.error ? "Failed: " + d.error : d.checked ? "Checked " + ago(d.checked) : "Not checked yet";
+  const rows = d.rows || [];
+  const by = {};
+  rows.forEach(r => (by[r.model] = by[r.model] || []).push(r));
+  const x = v => v == null ? "–" : v.toFixed(2) + "×";
+  const pr = (a, b) => a == null ? "–" : `$${(+a).toFixed(3)} / $${(+b).toFixed(3)}`;
+  if (!rows.length) {
+    $("#tablePrice").innerHTML = `<tbody><tr><td class="muted">No price check yet. Click “Check prices now” (live mode, takes about 20 seconds) or run <code>gbench price-check</code>.</td></tr></tbody>`;
+  } else {
+    $("#tablePrice").innerHTML = `<thead><tr><th>Model</th><th>Concentrate cheapest</th><th class="r">C ÷ OR, same provider</th><th>OpenRouter default (unpinned)</th><th class="r">C cheapest ÷ OR default</th><th>All providers</th></tr></thead><tbody>` +
+      Object.entries(by).map(([m, ps]) => {
+        const cheap = ps[0], same = ps.filter(p => p.conc_vs_or_same_provider != null);
+        const hi = same.reduce((a, p) => Math.max(a, p.conc_vs_or_same_provider), 0), lo = same.reduce((a, p) => Math.min(a, p.conc_vs_or_same_provider), Infinity);
+        const detail = `<details class="pdet"><summary>${ps.length} on Concentrate</summary>` + ps.map(p => `${esc(p.provider)}: ${pr(p.conc_in, p.conc_out)}${p.or_in != null ? ` · OR ${pr(p.or_in, p.or_out)}${p.or_quant && p.or_quant !== "unknown" ? " " + esc(p.or_quant) : ""} · <b>${x(p.conc_vs_or_same_provider)}</b>` : " · not on OR"}`).join("<br>") + `</details>`;
+        return `<tr><td><b>${esc(m)}</b></td><td>${esc(cheap.provider)} ${pr(cheap.conc_in, cheap.conc_out)}</td>
+          <td class="r num">${same.length ? (lo === hi ? x(hi) : `${x(lo)} – ${x(hi)}`) : "–"}</td>
+          <td>${esc(cheap.or_default_provider || "–")}</td><td class="r num">${x(cheap.conc_vs_or_default)}</td><td>${detail}</td></tr>`;
+      }).join("") + `</tbody>`;
+  }
+  renderGlance();
+  if (d.running) setTimeout(loadPrice, 2500);
+}
+$("#priceRun").addEventListener("click", async () => {
+  try { await api("/api/price-check", { method: "POST" }); } catch (e) { $("#priceWhen").textContent = e.message; }
+  loadPrice();
+});
+
+/* ---------------- at a glance */
+async function renderGlance() {
+  const tiles = [];
+  const sw = state.sweeps, cl = state.claims, pc = state.price, runs = state.runs || [];
+  // schedule
+  if (sw) {
+    const last = (sw.rows || []).reduce((a, r) => r.last > a ? r.last : a, "");
+    tiles.push(`<div class="tile"><span class="k">Schedule</span><span class="big">${sw.installed === true ? "Running 3× a day" : sw.installed === false ? "Not scheduled" : "Unknown"}</span>
+      <span class="sub">${last ? `Last sweep ${esc(last)} · ${sw.n_rows.toLocaleString()} result rows this week` : "No sweep has run yet."}${sw.installed === false ? "<br>Start it: <code>gbench schedule install</code>" : ""}</span><a class="more" href="#sweeps">Top-10 sweeps →</a></div>`);
+  }
+  // latest run
+  const live = runs.find(r => (r.options || {}).mode === "live") || runs[0];
+  if (live) {
+    const o = live.options || {};
+    tiles.push(`<div class="tile"><span class="k">Latest run</span><span class="big">${esc(runTitle(live))}</span>
+      <span class="sub"><span class="pill ${esc(live.status)}">${esc(statusText(live.status))}</span> ${o.model ? esc(o.model) : ""} · ${esc(ago(live.created))}</span>
+      <a class="more" href="#run=${esc(live.id)}" data-run="${esc(live.id)}">Open it →</a></div>`);
+  }
+  // gateway checks of the selected run
+  const ch = state.lastChecks;
+  if (ch && ch.length) {
+    const all = ch.flatMap(r => Object.values(r.status));
+    const n = k => all.filter(x => x === k).length;
+    const worst = ch.find(r => Object.values(r.status).includes("bad")) || ch.find(r => Object.values(r.status).includes("warn"));
+    tiles.push(`<div class="tile"><span class="k">Gateway checks · this run</span><span class="big">${n("bad") ? n("bad") + " problem" + (n("bad") > 1 ? "s" : "") : n("warn") ? n("warn") + " to look at" : "All fine"}</span>
+      <span class="sub"><span class="st ok"></span>${n("ok")} fine · <span class="st warn"></span>${n("warn")} look · <span class="st bad"></span>${n("bad")} problem${worst ? `<br>${esc(worst.check)}` : ""}</span><a class="more" href="#checksSec">Details →</a></div>`);
+  }
+  // price gap
+  if (pc && (pc.rows || []).length) {
+    const same = pc.rows.filter(r => r.conc_vs_or_same_provider != null).sort((a, b) => b.conc_vs_or_same_provider - a.conc_vs_or_same_provider);
+    const top = same[0], dflt = pc.rows.filter(r => r.conc_vs_or_default != null).sort((a, b) => b.conc_vs_or_default - a.conc_vs_or_default)[0];
+    tiles.push(`<div class="tile"><span class="k">Biggest price gap</span><span class="big">${top ? `${top.conc_vs_or_same_provider.toFixed(1)}× on ${esc(top.model)}` : "None on shared providers"}</span>
+      <span class="sub">${top ? `Concentrate's ${esc(top.provider)} price vs OpenRouter's for the same provider.` : ""}${dflt ? `<br>Against OpenRouter's unpinned default: up to ${dflt.conc_vs_or_default.toFixed(1)}× (${esc(dflt.model)}).` : ""}</span><a class="more" href="#tablePrice">Price check →</a></div>`);
+  } else {
+    tiles.push(`<div class="tile"><span class="k">Biggest price gap</span><span class="big">Not checked yet</span><span class="sub">Run the price check to compare both gateways' prices per provider for the top 10 models.</span><a class="more" href="#tablePrice">Price check →</a></div>`);
+  }
+  // claims
+  if (cl) {
+    const c = cl.counts || {};
+    tiles.push(`<div class="tile"><span class="k">Claims</span><span class="big">${c["holds"] || 0} hold · ${c["partly"] || 0} partly · ${c["doesn't hold"] || 0} don't</span>
+      <span class="sub">${c["not tested"] || 0} need a run to test.</span><a class="more" href="#claims">Claims →</a></div>`);
+  }
+  $("#glanceTiles").innerHTML = tiles.join("") || `<div class="tile"><span class="k">Nothing yet</span><span class="sub">Start a run below.</span></div>`;
+  $$("#glanceTiles a[data-run]").forEach(a => a.addEventListener("click", e => { e.preventDefault(); selectRun(a.dataset.run); document.getElementById("run").scrollIntoView({ behavior: "smooth" }); }));
 }
 
 /* ---------------- boot */
@@ -1765,6 +1904,7 @@ async function loadSweeps() {
   loadQualitySets();
   loadClaims();
   loadSweeps();
+  loadPrice();
   await loadHistory();
   const m = location.hash.match(/run=([\w-]+)/);
   if (m) selectRun(m[1]);
@@ -1903,7 +2043,7 @@ async function loadClaims(refresh = false) {
   let c;
   try { c = await api("/api/claims" + (refresh ? "?refresh=1" : "")); }
   catch (e) { $("#claimsTop").innerHTML = `<div class="note">Couldn't run the claims check: ${esc(e.message)}</div>`; return; }
-  state.claims = c;
+  state.claims = c; renderGlance();
   const st = c.stats || {}, n = v => v == null ? "–" : Number(v).toLocaleString();
   const x = v => v == null ? "–" : v.toFixed(2) + "×";
   $("#stRefTtft").textContent = fmt(st.ref_ttft_p50, "ms"); $("#stOrTtft").textContent = fmt(st.or_ttft_p50, "ms");

@@ -612,3 +612,130 @@ def cache_summary(tc: pd.DataFrame, ref: str, rival: str) -> list[dict]:
                      "cached_share": share, "cache_reported": bool(rest.cached_tokens.notna().any()),
                      "providers": sorted(set(g.provider_served.dropna().astype(str)))})
     return rows
+
+
+def gateway_checks(s: dict, state: dict, ref: str = "concentrate", rival: str = "openrouter") -> list[dict]:
+    """The six gateway-specific checks for one run, side by side. Each value is a short string;
+    `status` per side is ok | warn | bad | na, `note` says what it means."""
+    import datetime as _dt
+    out = []
+    pub = s.get("published") or {}
+    quant = {}
+    for e in pub.get("endpoints") or []:
+        for k in {str(e.get("tag") or "").split("/")[0], _norm_name(e.get("provider"))}:
+            if k:
+                quant[k] = e.get("quantization")
+
+    def top_provider(k):
+        rows = (s.get("served") or {}).get(k) or []
+        if not rows:
+            return None, None
+        tot = sum(n for _, n in rows) or 1
+        name, n = rows[0]
+        return name, n / tot * 100
+
+    # 1 provider served + quantization
+    vals, st, notes = {}, {}, []
+    for k in (ref, rival):
+        name, share = top_provider(k)
+        if name is None or (name == "not reported" and len((s.get("served") or {}).get(k) or []) == 1):
+            vals[k], st[k] = ("not reported" if name else "–"), "na"
+            continue
+        q = quant.get(_norm_name(name)) or quant.get(str(name).lower())
+        many = len((s.get("served") or {}).get(k) or []) > 1
+        vals[k] = f"{name} ({share:.0f}%)" + (f" · {q}" if q and q not in ("unknown", None) else "") + (" + others" if many else "")
+        st[k] = "warn" if (q and str(q).lower().startswith(("fp4", "int4", "fp6"))) or many else "ok"
+    up = (s.get("models") or {}).get("upstream")
+    names = {k: _norm_name((top_provider(k)[0] or "")) for k in (ref, rival)}
+    unknown = [k for k in (ref, rival) if names[k] in ("", "notreported")]
+    same = not unknown and (names[ref] in names[rival] or names[rival] in names[ref])
+    out.append({"key": "provider", "check": "Provider that actually answered", "values": vals, "status": st,
+                "note": (f"{' and '.join({'concentrate': 'Concentrate', 'openrouter': 'OpenRouter'}.get(k, k) for k in unknown)} didn't report a provider, so we can't tell whether both used the same one."
+                         if unknown else "Both used the same provider, so speed and price differences come from the gateway."
+                         if same else "Different providers: speed and price differences may come from the provider, not the gateway.")
+                        + (f" OpenRouter was pinned to {up}." if up else " No provider pinned.")})
+
+    # 2 charged vs list
+    sides = (s.get("billing") or {}).get("sides") or {}
+    vals, st = {}, {}
+    for k in (ref, rival):
+        sd = sides.get(k) or {}
+        r = sd.get("ratio")
+        if r is None:
+            vals[k] = "enter the dashboard amount" if k == ref and sd.get("billed") is None else "–"
+            st[k] = "na"
+        else:
+            vals[k] = f"{r:.2f}× list ({sd.get('billed_source')})"
+            st[k] = "ok" if r <= 1.01 else ("warn" if r <= 1.1 else "bad")
+    out.append({"key": "billed", "check": "Charged ÷ list price", "values": vals, "status": st,
+                "note": "1.00× = billed exactly the provider's list price for the tokens processed. OpenRouter also takes 5.5% when you buy credits."})
+
+    # 3 tokens counted
+    m = next((x for x in s.get("metrics", []) if x["key"] == "tokens_counted"), None)
+    if m and m["values"].get(ref) is not None and m["values"].get(rival) is not None:
+        a, b = m["values"][ref], m["values"][rival]
+        gap = abs(a - b) / max(a, b) * 100 if max(a, b) else 0
+        vals = {ref: f"{a:,.0f} tok", rival: f"{b:,.0f} tok"}
+        st = {k: ("ok" if gap < 1 else "warn" if gap < 5 else "bad") for k in (ref, rival)}
+        note = f"Same requests, {gap:.1f}% apart." + (" Billing counts match." if gap < 1 else " A gap means one side bills more tokens for the same work.")
+    else:
+        vals, st, note = {ref: "–", rival: "–"}, {ref: "na", rival: "na"}, "Needs the Speed & fees test."
+    out.append({"key": "tokens", "check": "Tokens counted for identical requests", "values": vals, "status": st, "note": note})
+
+    # 4 cache
+    cs = {r["system"]: r for r in (s.get("cache") or [])}
+    if cs:
+        vals, st = {}, {}
+        for k in (ref, rival):
+            r = cs.get(k)
+            if not r:
+                vals[k], st[k] = "–", "na"
+            elif r["cached_share"] is None:
+                vals[k], st[k] = "not reported", "warn"
+            else:
+                vals[k] = f"{r['cached_share']:.0f}% of input cached"
+                st[k] = "ok" if r["cached_share"] >= 50 else "warn"
+        note = "Share of a repeated long prompt billed at the cache price. 0% or not reported = no visible cache discount."
+    else:
+        vals, st, note = {ref: "–", rival: "–"}, {ref: "na", rival: "na"}, "Run the Prompt cache test to check."
+    out.append({"key": "cache", "check": "Prompt cache passed through", "values": vals, "status": st, "note": note})
+
+    # 5 parameter fidelity
+    pre = state.get("preflight") or []
+    temp = (s.get("models") or {}).get("temperature")
+    mism = {}
+    for row in s.get("track_a") or []:
+        if row.get("system") in (ref, rival) and row.get("served_model_mismatch") is not None:
+            mism.setdefault(row["system"], []).append(row["served_model_mismatch"])
+    vals, st = {}, {}
+    for k in (ref, rival):
+        checks = [c for c in pre if c.get("system") == k]
+        failed = [c for c in checks if not c.get("ok")]
+        mm = max(mism.get(k) or [0])
+        bits = []
+        if checks:
+            bits.append("settings accepted" if not failed else f"rejected: {failed[0].get('error', '')[:60]}")
+        if mism.get(k):
+            bits.append("served the model asked for" if mm == 0 else f"other model served on {mm * 100:.0f}% of requests")
+        vals[k] = "; ".join(bits) or "–"
+        st[k] = "bad" if failed or mm > 0.05 else ("ok" if bits else "na")
+    out.append({"key": "params", "check": "Request settings respected", "values": vals, "status": st,
+                "note": "Pre-run check with the exact settings, plus whether the model each response reports matches the one requested."
+                        + (" Temperature left unset on both sides (the model doesn't accept it)." if temp == "omitted" else "")})
+
+    # 6 time of day
+    started = state.get("started") or state.get("created")
+    slot = ((state.get("options") or {}).get("sweep") or {}).get("slot")
+    if not slot and started:
+        h = _dt.datetime.fromtimestamp(started).hour
+        slot = "morning" if h < 11 else ("afternoon" if h < 17 else "evening")
+    cm = next((x for x in s.get("metrics", []) if x["key"] == "cost_mtok"), None)
+    vals = {k: (f"${cm['values'][k]:.3f} / 1M tok" if cm and cm["values"].get(k) is not None else "–") for k in (ref, rival)}
+    out.append({"key": "slot", "check": f"Time of day ({slot or 'unknown'} run)", "values": vals,
+                "status": {ref: "na", rival: "na"},
+                "note": "Prices and speed can change by time of day (some providers have off-peak prices). Compare slots in Top-10 sweeps."})
+    return out
+
+
+def _norm_name(x) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(x or "").lower())
