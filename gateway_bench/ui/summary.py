@@ -562,7 +562,19 @@ def quality_summary(tq: pd.DataFrame, ref: str, rival: str, published: dict) -> 
             row["published"] = pub
         sets.append(row)
     overall = block(tq.assign(**{"meta.set": tq["meta.set"].astype(str)}), "all")
-    return {"sets": sets, "overall": overall, "model": published.get("model"), "published_source": published.get("source")}
+    # A/A noise floor: the same gateway answering the same questions twice (repeats >= 2)
+    noise = []
+    if tq["meta.rep"].nunique() >= 2:
+        for (st_name, lab), g in tq[tq.correct.notna()].groupby(["meta.set", "label"]):
+            r0 = g[g["meta.rep"] == 0].set_index("meta.item_id").correct.astype(bool)
+            r1 = g[g["meta.rep"] == 1].set_index("meta.item_id").correct.astype(bool)
+            both = r0.index.intersection(r1.index)
+            if len(both):
+                a, b = r0.loc[both], r1.loc[both]
+                noise.append({"set": str(st_name), "system": lab, "n": int(len(both)),
+                              "acc_run1": float(a.mean() * 100), "acc_run2": float(b.mean() * 100),
+                              "disagree_pct": float((a != b).mean() * 100), "p": A.mcnemar_exact(a, b)})
+    return {"sets": sets, "overall": overall, "noise_floor": noise, "model": published.get("model"), "published_source": published.get("source")}
 
 
 def _pct(series, q):

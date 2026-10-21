@@ -63,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     ps.add_argument("--models", help="comma-separated subset, by name (e.g. 'opus,glm 5.3 flash')")
     ps.add_argument("--modes", help="same_provider,default (default: both)")
     ps.add_argument("--dry-run", action="store_true", help="show what would run and its estimated cost, send nothing")
+    ps.add_argument("--jitter-minutes", type=float, default=0, help="wait a random 0..N minutes before starting (the schedule uses 150)")
 
     pc = sub.add_parser("price-check", help="per-provider prices for the top-10 models on both gateways")
     pc.add_argument("--config", default="configs/top10.yaml")
@@ -85,7 +86,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "sweep":
         from .sweep import run_sweep
-        asyncio.run(run_sweep(args.config, args.slot, _csv(args.models), _csv(args.modes), args.dry_run))
+        asyncio.run(run_sweep(args.config, args.slot, _csv(args.models), _csv(args.modes), args.dry_run,
+                              jitter_minutes=args.jitter_minutes))
         return 0
     if args.cmd == "price-check":
         from .sweep import price_check

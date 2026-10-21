@@ -45,15 +45,41 @@ def current_slot(now: dt.datetime | None = None) -> str:
     return "morning" if h < 11 else ("afternoon" if h < 17 else "evening")
 
 
+SLOTS = ["morning", "afternoon", "evening"]
+
+
+def daily_slot(now: dt.datetime) -> str:
+    """The window today's once-a-day tests run in: rotates morning -> afternoon -> evening by date."""
+    return SLOTS[now.timetuple().tm_yday % 3]
+
+
+def weekly_slot(now: dt.datetime) -> tuple[str, str]:
+    """(day, window) of this week's heavy tests. Rotates both, so 21 weeks cover all 21 combinations
+    (7 and 3 share no factor) and no week repeats the previous one."""
+    w = now.isocalendar()[1]
+    return DAYS[w % 7], SLOTS[w % 3]
+
+
 def is_when(when: str | None, slot: str, cfg: dict, now: dt.datetime) -> bool:
     if not when or when == "always":
         return True
     if when == "daily":
-        return slot == (cfg.get("daily") or {}).get("slot", "afternoon")
+        fixed = (cfg.get("daily") or {}).get("slot")
+        return slot == (fixed if fixed and fixed != "rotate" else daily_slot(now))
     if when == "weekly":
         wk = cfg.get("weekly") or {}
-        return slot == wk.get("slot", "evening") and DAYS[now.weekday()] == wk.get("day", "sun")
+        if wk.get("day") and wk.get("slot") and wk.get("day") != "rotate":
+            return slot == wk["slot"] and DAYS[now.weekday()] == wk["day"]
+        day, sl = weekly_slot(now)
+        return slot == sl and DAYS[now.weekday()] == day
     return False
+
+
+def runs_today(m: dict, idx: int, slot: str, now: dt.datetime) -> bool:
+    """Models with runs_per_day: 1 (e.g. the most expensive) run in one window a day, rotating."""
+    if int(m.get("runs_per_day", 3)) >= 3:
+        return True
+    return slot == SLOTS[(now.timetuple().tm_yday + idx) % 3]
 
 
 # ------------------------------------------------------------------ prices
@@ -156,7 +182,11 @@ def plan(cfg: dict, slot: str, now: dt.datetime, models: list[dict]) -> list[dic
     cp = cfg.get("cache_probe") or {}
     q = cfg.get("quality") or {}
     units = []
-    for m in models:
+    week = now.isocalendar()[1]
+    aa_name = models[week % len(models)]["name"] if models else None   # this week's A/A noise-control model
+    for idx, m in enumerate(models):
+        if not runs_today(m, idx, slot, now):
+            continue
         price = (m.get("ref") or {}).get("price") or {"input": 0.0, "output": 0.0}
         dear = max(((m.get("ref") or {}).get("provider_prices") or {"x": price}).values(), key=blended)
 
@@ -188,9 +218,10 @@ def plan(cfg: dict, slot: str, now: dt.datetime, models: list[dict]) -> list[dic
                 u["tests"].append("cache")
                 u["est_usd"] += 2 * 4 * (u["cache"]["prefix_tokens"] * 1.05 * dear["input"]) / 1e6
             if q and is_when(q.get("when", "weekly"), slot, cfg, now) and mode in q.get("modes", ["same_provider"]):
-                u["quality"] = {"sets": q.get("sets", ["gpqa_diamond"]), "items": int(q.get("items", 198))}
-                u["tests"].append("quality")
-                u["est_usd"] += 2 * u["quality"]["items"] * (600 * dear["input"] + 4000 * dear["output"]) / 1e6
+                reps = 2 if (q.get("aa_control", True) and m["name"] == aa_name) else 1
+                u["quality"] = {"sets": q.get("sets", ["gpqa_diamond"]), "items": int(q.get("items", 198)), "repeats": reps}
+                u["tests"].append("quality" + (" x2 (A/A control)" if reps == 2 else ""))
+                u["est_usd"] += 2 * reps * u["quality"]["items"] * (600 * dear["input"] + 4000 * dear["output"]) / 1e6
             units.append(u)
     return units
 
@@ -255,6 +286,7 @@ async def run_unit(u: dict, slot: str, sweep_id: str, log=print) -> tuple[str | 
         model=m["openrouter"], ref_model=m["concentrate"], upstream=pin or "",
         quality="quality" in u, quality_sets=(u.get("quality") or {}).get("sets", []),
         quality_items=(u.get("quality") or {}).get("items", 50),
+        quality_repeats=(u.get("quality") or {}).get("repeats", 1),
         volume="volume" in u, volume_levels=(u.get("volume") or {}).get("levels", [{"requests": 100, "concurrency": 10}]),
         volume_shape=(u.get("volume") or {}).get("shape", "tiny"),
         cache_probe="cache" in u, cache_prefix_tokens=(u.get("cache") or {}).get("prefix_tokens", 8000),
@@ -350,11 +382,20 @@ def append_csv(rows: list[dict], path: Path = LOG_CSV) -> None:
 
 
 async def run_sweep(cfg_path: str = "configs/top10.yaml", slot: str | None = None, only: list[str] | None = None,
-                    modes: list[str] | None = None, dry_run: bool = False, log=print) -> list[dict]:
+                    modes: list[str] | None = None, dry_run: bool = False, log=print,
+                    jitter_minutes: float = 0) -> list[dict]:
+    import random
     from .ui.server import fetch_catalog, fetch_ref_models
     now = dt.datetime.now()
     cfg = load_yaml(cfg_path)
     slot = slot or current_slot(now)
+    if jitter_minutes and not dry_run:
+        # stratified random timing: the schedule fires at the window's start, the run begins at a random
+        # point inside the window (see the methodology doc, 3.9)
+        wait = random.uniform(0, float(jitter_minutes) * 60)
+        log(f"Random start: waiting {wait / 60:.0f} min inside the {slot} window")
+        await asyncio.sleep(wait)
+        now = dt.datetime.now()
     refs, err = fetch_ref_models(force=True)
     if err:
         log(f"[warn] {err}")
@@ -374,6 +415,7 @@ async def run_sweep(cfg_path: str = "configs/top10.yaml", slot: str | None = Non
     for u in units:
         log(f"  {u['model']['name']:<24} {u['mode']:<14} {', '.join(u['tests']):<40} ~${u['est_usd']:.2f}")
     units = apply_budget(units, budget, log)
+    random.Random(now.timestamp()).shuffle(units)        # random model order every run
     if dry_run:
         return units
     sweep_id = now.strftime("%Y%m%d-") + slot
@@ -393,7 +435,7 @@ async def run_sweep(cfg_path: str = "configs/top10.yaml", slot: str | None = Non
 LABEL = "ai.concentrate.gbench-sweep"
 
 
-def plist_text(slots: dict, repo: Path, gbench: str, log_path: Path) -> str:
+def plist_text(slots: dict, repo: Path, gbench: str, log_path: Path, jitter: int = 150) -> str:
     from xml.sax.saxutils import escape as esc
     cal = ""
     for t in slots.values():
@@ -405,7 +447,7 @@ def plist_text(slots: dict, repo: Path, gbench: str, log_path: Path) -> str:
 <dict>
   <key>Label</key><string>{LABEL}</string>
   <key>ProgramArguments</key>
-  <array><string>{esc(gbench)}</string><string>sweep</string></array>
+  <array><string>{esc(gbench)}</string><string>sweep</string><string>--jitter-minutes</string><string>{jitter}</string></array>
   <key>WorkingDirectory</key><string>{esc(str(repo))}</string>
   <key>StartCalendarInterval</key>
   <array>
@@ -421,12 +463,13 @@ def schedule(action: str, cfg_path: str = "configs/top10.yaml", log=print) -> in
     import shutil
     import subprocess
     cfg = load_yaml(cfg_path)
-    slots = cfg.get("slots") or {"morning": "08:47", "afternoon": "13:47", "evening": "19:47"}
+    slots = cfg.get("slots") or {"morning": "08:00", "afternoon": "13:00", "evening": "19:00"}
+    jitter = int(cfg.get("jitter_minutes", 150))
     plist = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
     repo = Path.cwd().resolve()
     if action == "show":
         gb = shutil.which("gbench") or sys.argv[0]
-        print(plist_text(slots, repo, gb, repo / SWEEP_DIR / "schedule.log"))
+        print(plist_text(slots, repo, gb, repo / SWEEP_DIR / "schedule.log", jitter))
         return 0
     if sys.platform != "darwin":
         log("Scheduling uses macOS launchd. On Linux add this to `crontab -e` instead:")
@@ -442,12 +485,13 @@ def schedule(action: str, cfg_path: str = "configs/top10.yaml", log=print) -> in
         (repo / SWEEP_DIR).mkdir(parents=True, exist_ok=True)
         plist.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["launchctl", "unload", str(plist)], capture_output=True)
-        plist.write_text(plist_text(slots, repo, gb, repo / SWEEP_DIR / "schedule.log"))
+        plist.write_text(plist_text(slots, repo, gb, repo / SWEEP_DIR / "schedule.log", jitter))
         r = subprocess.run(["launchctl", "load", str(plist)], capture_output=True, text=True)
         if r.returncode:
             log(f"launchctl load failed: {r.stderr.strip()}")
             return 1
-        log(f"Scheduled: gbench sweep at {', '.join(f'{k} {v}' for k, v in slots.items())} (local time).")
+        log(f"Scheduled: gbench sweep in three windows a day, starting at a random point within {jitter} min of "
+            f"{', '.join(f'{k} {v}' for k, v in slots.items())} (local time).")
         log("If the Mac is asleep at a slot, launchd runs it once when it wakes. Log: results/sweeps/schedule.log")
         return 0
     if action == "uninstall":

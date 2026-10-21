@@ -34,11 +34,11 @@ def test_demo_volume_and_cache(tmp_path, monkeypatch):
     levels = {(r["level"], r["system"]) for r in res["volume"]}
     assert ("60@20", "concentrate") in levels and ("30@5", "openrouter") in levels
     big = [r for r in res["volume"] if r["level"] == "60@20"]
-    assert all(r["n"] == 60 and r["rps"] > 0 for r in big)
+    assert all(r["n"] == 60 and r["rps"] > 0 for r in big), big
     keys = {m["key"] for m in res["metrics"]}
     assert {"vol_success", "vol_ttft_p90", "vol_rps"} <= keys
     assert {r["system"] for r in res["cache"]} == {"concentrate", "openrouter"}
-    assert all(r["calls"] == 4 for r in res["cache"])
+    assert all(r["calls"] >= 3 for r in res["cache"])     # demo mocks fail ~1% of calls on purpose
 
 
 def test_client_reads_provider_and_cache_fields():
@@ -76,19 +76,35 @@ def test_sweep_plan_slots_and_budget(monkeypatch):
              "provider_prices": {"a": {"input": 0.2, "output": 0.8}, "b": {"input": 0.4, "output": 1.6}}} for m in cfg["models"]]
     refs[6]["price"] = {"input": 4, "output": 20}          # Opus: over the 10k level's price cap
     models = sweep.resolve_models(cfg, refs, [], lambda *_: None)
-    wed = dt.datetime(2026, 10, 14, 9)                       # Wednesday morning
-    sun = dt.datetime(2026, 10, 18, 20)                      # Sunday evening = the weekly slot
-    assert sweep.current_slot(wed) == "morning" and sweep.current_slot(sun) == "evening"
-    u_morning = sweep.plan(cfg, "morning", wed, models)
-    assert len(u_morning) == 20 and all("quality" not in u and "cache" not in u for u in u_morning)
-    assert all([lv["requests"] for lv in u["volume"]["levels"]] == [100, 1000] for u in u_morning)
-    u_week = sweep.plan(cfg, "evening", sun, models)
-    opus = [u for u in u_week if u["model"]["name"] == "Claude Opus 5.5"]
-    assert all(10000 not in [lv["requests"] for lv in u["volume"]["levels"]] for u in opus)
+    wed = dt.datetime(2026, 10, 14, 9)
+    assert sweep.current_slot(wed) == "morning"
+    # Opus (runs_per_day: 1) runs in exactly one of the three windows each day
+    days = [sweep.plan(cfg, sl, wed.replace(hour=h), models) for sl, h in (("morning", 9), ("afternoon", 14), ("evening", 20))]
+    assert sum(any(u["model"]["name"] == "Claude Opus 5.5" for u in us) for us in days) == 1
+    assert all(len(us) >= 18 for us in days)
+    # weekly heavy slot rotates; find this week's and check it carries 10k + quality (+ one A/A model)
+    day, sl = sweep.weekly_slot(wed)
+    d = wed + dt.timedelta(days=(sweep.DAYS.index(day) - wed.weekday()) % 7)
+    when = d.replace(hour={"morning": 9, "afternoon": 14, "evening": 20}[sl])
+    if when.isocalendar()[1] != wed.isocalendar()[1]:
+        when -= dt.timedelta(days=7)
+    day, sl = sweep.weekly_slot(when)
+    u_week = sweep.plan(cfg, sl, when, models)
     assert any("quality" in u for u in u_week) and not any("quality" in u for u in u_week if u["mode"] == "default")
+    assert sum(1 for u in u_week if (u.get("quality") or {}).get("repeats") == 2) == 1      # A/A control: one model
+    assert any(10000 in [lv["requests"] for lv in u["volume"]["levels"]] for u in u_week)
+    assert all(10000 not in [lv["requests"] for lv in u["volume"]["levels"]] for u in u_week if u["model"]["name"] == "Claude Opus 5.5")
     trimmed = sweep.apply_budget(u_week, 1.0, lambda *_: None)
     assert sum(u["est_usd"] for u in trimmed) <= 1.0
 
+
+def test_rotation_covers_every_day_and_window():
+    from gateway_bench import sweep
+    start = dt.datetime(2026, 1, 5)          # a Monday
+    combos = {sweep.weekly_slot(start + dt.timedelta(weeks=k)) for k in range(21)}
+    assert len(combos) == 21
+    days = {sweep.daily_slot(start + dt.timedelta(days=k)) for k in range(3)}
+    assert days == {"morning", "afternoon", "evening"}
 
 def test_log_rows_and_sweeps_endpoint(tmp_path, monkeypatch):
     monkeypatch.chdir(REPO)
@@ -133,8 +149,8 @@ def test_log_rows_and_sweeps_endpoint(tmp_path, monkeypatch):
 def test_plist_escapes_paths():
     from pathlib import Path
     from gateway_bench.sweep import plist_text
-    t = plist_text({"morning": "08:47"}, Path("/Users/a/Adi's Mac & Co/Bench"), "/x/gbench", Path("/tmp/l.log"))
-    assert "Adi's Mac &amp; Co" in t and "<integer>8</integer>" in t and "<integer>47</integer>" in t
+    t = plist_text({"morning": "08:00"}, Path("/Users/a/Adi's Mac & Co/Bench"), "/x/gbench", Path("/tmp/l.log"), 150)
+    assert "Adi's Mac &amp; Co" in t and "<integer>8</integer>" in t and "<string>--jitter-minutes</string><string>150</string>" in t
 
 
 def test_gateway_checks_and_price_endpoint(tmp_path, monkeypatch):

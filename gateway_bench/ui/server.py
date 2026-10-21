@@ -96,6 +96,7 @@ class RunOptions(BaseModel):
     quality: bool = False
     quality_sets: list[str] = []
     quality_items: int = Field(50, ge=1, le=20000)
+    quality_repeats: int = Field(1, ge=1, le=5)       # 2 = A/A noise control (each gateway answers twice)
     # Volume & concurrency: N requests with C in flight, per gateway (closed loop)
     volume: bool = False
     volume_levels: list[dict] = [{"requests": 100, "concurrency": 10}]
@@ -391,7 +392,7 @@ async def execute(run: Run) -> None:
                                       temperature=temperature)
                 if bad:
                     raise RuntimeError(_fail_msg(run, bad))
-            path = _write_yaml(run.dir / "cfg_quality.yaml", {**qbase, "sets": have})
+            path = _write_yaml(run.dir / "cfg_quality.yaml", {**qbase, "sets": have, "repeats": o.quality_repeats})
             run.phases["Quality parity"] = {"done": 0, "total": 0, "status": "running"}
             run.log(f"Quality parity started on {o.model or alias}: {', '.join(s_['name'] for s_ in have)}")
             await run_quality([(s_.name, s_, s_.model_for(alias)) for s_ in gw], path, run.dir / "track_q.jsonl",

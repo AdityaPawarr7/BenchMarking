@@ -2016,7 +2016,9 @@ function drawQuality() {
       <div class="qbar"><span style="width:${w(x.both_right)};background:${C.both}" title="both right: ${x.both_right}"></span><span style="width:${w(x.only_ref)};background:${C.r}" title="only ${nice(R)} right: ${x.only_ref}"></span><span style="width:${w(x.only_rival)};background:${C.v};border-radius:0 4px 4px 0" title="only ${nice(V)} right: ${x.only_rival}"></span><span style="width:${w(x.both_wrong)};background:${C.none}" title="both wrong: ${x.both_wrong}"></span></div>
       <div class="qkey"><span><i style="background:${C.both}"></i>both right ${x.both_right}</span><span><i style="background:${C.r}"></i>only ${nice(R)} ${x.only_ref}</span><span><i style="background:${C.v};border-radius:50%"></i>only ${nice(V)} ${x.only_rival}</span><span><i style="background:${C.none}"></i>both wrong ${x.both_wrong}</span></div>
       <div class="small" style="margin-top:8px;color:var(--text-2)">${verdict}</div></div>`;
-  }).join("");
+  }).join("") + ((q.noise_floor || []).length ? `<div class="q-set"><h5>A/A noise floor <span class="muted small">same gateway, same questions, twice</span></h5>` +
+    q.noise_floor.map(nf => `<div class="small" style="color:var(--text-2)"><span class="dot ${nf.system === R ? "ref" : "rival"}"></span> ${esc(nice(nf.system))} · ${esc(label(nf.set))}: run 1 ${nf.acc_run1.toFixed(1)}% vs run 2 ${nf.acc_run2.toFixed(1)}%, graded differently on <b>${nf.disagree_pct.toFixed(0)}%</b> of questions (p = ${nf.p.toFixed(2)})</div>`).join("") +
+    `<div class="small muted" style="margin-top:6px">A gap between the gateways only counts if it's clearly bigger than this.</div></div>` : "");
 
   table($("#tableQ"), [
     { h: "Set", f: x => esc(label(x.set)) },

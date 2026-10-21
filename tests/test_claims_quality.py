@@ -96,3 +96,19 @@ def test_demo_quality_run(tmp_path, monkeypatch):
         assert res["quality"]["sets"][0]["n"] > 0
         assert "accuracy_q" in {m["key"] for m in res["metrics"]}
         assert json.loads((tmp_path / "ui" / rid / "track_q.jsonl").read_text().splitlines()[0])["track"] == "Q"
+
+
+def test_quality_noise_floor():
+    import pandas as pd
+    from gateway_bench.ui.summary import quality_summary
+    rows = []
+    for rep in (0, 1):
+        for i in range(30):
+            for lab in ("concentrate", "openrouter"):
+                rows.append({"meta.label": lab, "system": lab, "meta.set": "gpqa_diamond", "meta.item_id": str(i), "meta.rep": rep,
+                             "correct": (i + rep) % 5 != 0, "ok": True, "cost_usd": 0.01, "e2e_ms": 900.0, "output_tokens": 100,
+                             "cost_source": "reported"})
+    q = quality_summary(pd.DataFrame(rows), "concentrate", "openrouter", {})
+    nf = {r["system"]: r for r in q["noise_floor"]}
+    assert set(nf) == {"concentrate", "openrouter"} and nf["concentrate"]["n"] == 30
+    assert 0 < nf["concentrate"]["disagree_pct"] < 100
