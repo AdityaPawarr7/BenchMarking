@@ -369,6 +369,22 @@ def log_rows(run_id: str, u: dict, slot: str, sweep_id: str, pin: str | None, no
     return rows
 
 
+def spent_to_date(path: Path = LOG_CSV, since: str | None = None) -> float:
+    """Billed spend logged so far (cost per request x requests, failures included, so it errs high)."""
+    if not Path(path).exists():
+        return 0.0
+    total = 0.0
+    with open(path, newline="") as f:
+        for r in csv.DictReader(f):
+            if since and (r.get("date") or "") < str(since):
+                continue
+            try:
+                total += float(r.get("cost_per_req_usd") or 0) * float(r.get("n") or 0)
+            except ValueError:
+                continue
+    return total
+
+
 def append_csv(rows: list[dict], path: Path = LOG_CSV) -> None:
     if not rows:
         return
@@ -410,6 +426,14 @@ async def run_sweep(cfg_path: str = "configs/top10.yaml", slot: str | None = Non
     units = plan(cfg, slot, now, models)
     weekly = is_when("weekly", slot, cfg, now)
     budget = float(cfg.get("budget_usd_weekly_slot" if weekly else "budget_usd_per_slot", 60))
+    if cfg.get("budget_usd_total") is not None:
+        # hard cap across the whole pilot: never plan more than what's left of it
+        left = float(cfg["budget_usd_total"]) - spent_to_date(LOG_CSV, cfg.get("budget_start"))
+        log(f"Pilot budget: ${left:.2f} left of ${float(cfg['budget_usd_total']):.0f}")
+        if left <= 0:
+            log("[budget] total budget used up; nothing run")
+            return []
+        budget = min(budget, left)
     log(f"Sweep · {slot}{' (weekly slot)' if weekly else ''} · {now:%Y-%m-%d %H:%M} · {len(units)} units · "
         f"estimated ${sum(u['est_usd'] for u in units):.2f} at Concentrate's dearest provider price (budget ${budget:.0f})")
     for u in units:

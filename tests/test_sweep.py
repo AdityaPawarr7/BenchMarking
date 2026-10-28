@@ -186,3 +186,21 @@ def test_concentrate_cost_and_pin_helpers():
     assert concentrate_provider("google-vertex", ["anthropic", "vertex"]) == "vertex"
     assert concentrate_provider("novita", ["runware"]) is None
     assert concentrate_provider("amazon-bedrock") == "bedrock"
+
+
+def test_total_budget_stops_sweep(tmp_path, monkeypatch):
+    import asyncio
+    from gateway_bench import sweep
+    log = tmp_path / "log.csv"
+    sweep.append_csv([{"date": "2026-11-03", "n": 100, "cost_per_req_usd": 6.0}], log)
+    sweep.append_csv([{"date": "2026-10-01", "n": 100, "cost_per_req_usd": 1.0}], log)
+    assert sweep.spent_to_date(log) == 700.0 and sweep.spent_to_date(log, "2026-11-02") == 600.0
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("models: []\nbudget_usd_total: 500\n")
+    monkeypatch.setattr(sweep, "LOG_CSV", log)
+    from gateway_bench.ui import server
+    monkeypatch.setattr(server, "fetch_ref_models", lambda force=False: ([], None))
+    monkeypatch.setattr(server, "fetch_catalog", lambda force=False: ([], None))
+    msgs = []
+    assert asyncio.run(sweep.run_sweep(str(cfg), slot="morning", log=msgs.append)) == []
+    assert any("used up" in m for m in msgs)

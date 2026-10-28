@@ -117,11 +117,13 @@ The scheduled benchmark: the 10 most-used models on OpenRouter that Concentrate 
 - **default**: no pins (what a customer gets)
 
 Three windows a day (08:00, 13:00, 19:00 local), each run starting at a random point within 150 minutes
-of the window start, models in random order. Every run does speed at 4 prompt sizes and volume at 100 and
-1,000 requests (10 and 50 in flight). Once a day (rotating window) it adds the prompt-cache probe. Once a
+of the window start, models in random order. Every run does speed at 3 prompt sizes (~165 to ~10k tokens)
+and volume at 100 requests (10 in flight). Once a day (rotating window) it adds 1,000 requests (50 in flight)
+and the prompt-cache probe. Once a
 week (rotating day and window) it adds 10,000 requests (200 in flight), GPQA Diamond quality parity, and an
 A/A noise control (one rotating model answers twice per gateway). Claude Opus 5.5 runs once a day
-(`runs_per_day: 1`) to keep the budget near $860/week. Every request records the provider that served it,
+(`runs_per_day: 1`). These are the 2-week pilot settings: about $240-470/week, with a hard cap of
+`budget_usd_total: 1000` across all runs (counted from `budget_start` in `sweep_log.csv`). Every request records the provider that served it,
 cached and reasoning tokens, and cost. Concentrate's cost is priced at the served provider's list price.
 
 ```bash
