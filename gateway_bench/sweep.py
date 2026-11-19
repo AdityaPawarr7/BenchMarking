@@ -194,7 +194,8 @@ def plan(cfg: dict, slot: str, now: dt.datetime, models: list[dict]) -> list[dic
             i, o = tokens_for(shape)
             return n * (i * p["input"] + o * p["output"]) / 1e6
 
-        for mode in cfg.get("modes", ["same_provider", "default"]):
+        speed_only = bool(m.get("speed_only"))   # per-model override: skip volume, cache and quality
+        for mode in m.get("modes") or cfg.get("modes", ["same_provider", "default"]):
             u: dict[str, Any] = {"model": m, "mode": mode, "tests": [], "est_usd": 0.0}
             n_cell = int(sp.get("requests_per_cell", 10)) * len(sp.get("stream_modes", [True]))
             sh_names = sp.get("shapes", list(shapes))
@@ -203,7 +204,7 @@ def plan(cfg: dict, slot: str, now: dt.datetime, models: list[dict]) -> list[dic
             u["tests"].append("speed")
             u["est_usd"] += 2 * sum(cost(n_cell, shapes[s]) for s in sh_names) + 2 * cost(int(sp.get("warmup", 5)), shapes[sh_names[0]])
             levels = []
-            for lv in vol.get("levels", []):
+            for lv in ([] if speed_only else vol.get("levels", [])):
                 if not is_when(lv.get("when"), slot, cfg, now):
                     continue
                 if lv.get("max_price_per_m") is not None and (blended(price) or 0) > float(lv["max_price_per_m"]):
@@ -213,11 +214,11 @@ def plan(cfg: dict, slot: str, now: dt.datetime, models: list[dict]) -> list[dic
                 u["volume"] = {"levels": levels, "shape": vol.get("shape", "tiny")}
                 u["tests"].append("volume " + "/".join(f"{lv['requests']:,}" for lv in levels))
                 u["est_usd"] += 2 * sum(cost(lv["requests"], shapes[vol.get("shape", "tiny")]) for lv in levels)
-            if cp and is_when(cp.get("when", "daily"), slot, cfg, now):
+            if cp and not speed_only and is_when(cp.get("when", "daily"), slot, cfg, now):
                 u["cache"] = {"prefix_tokens": int(cp.get("prefix_tokens", 8000))}
                 u["tests"].append("cache")
                 u["est_usd"] += 2 * 4 * (u["cache"]["prefix_tokens"] * 1.05 * dear["input"]) / 1e6
-            if q and is_when(q.get("when", "weekly"), slot, cfg, now) and mode in q.get("modes", ["same_provider"]):
+            if q and not speed_only and is_when(q.get("when", "weekly"), slot, cfg, now) and mode in q.get("modes", ["same_provider"]):
                 reps = 2 if (q.get("aa_control", True) and m["name"] == aa_name) else 1
                 u["quality"] = {"sets": q.get("sets", ["gpqa_diamond"]), "items": int(q.get("items", 198)), "repeats": reps}
                 u["tests"].append("quality" + (" x2 (A/A control)" if reps == 2 else ""))
@@ -423,6 +424,8 @@ async def run_sweep(cfg_path: str = "configs/top10.yaml", slot: str | None = Non
         models = [m for m in models if any(_norm(o) in _norm(m["name"]) for o in only)]
     if modes:
         cfg["modes"] = modes
+        for m in models:
+            m.pop("modes", None)
     units = plan(cfg, slot, now, models)
     weekly = is_when("weekly", slot, cfg, now)
     budget = float(cfg.get("budget_usd_weekly_slot" if weekly else "budget_usd_per_slot", 60))
