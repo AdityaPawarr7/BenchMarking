@@ -71,17 +71,19 @@ def test_sweep_plan_slots_and_budget(monkeypatch):
     monkeypatch.chdir(REPO)
     from gateway_bench import sweep
     cfg = sweep.load_yaml("configs/top10.yaml")
-    assert len(cfg["models"]) == 10
+    assert len(cfg["models"]) == 5
     refs = [{"id": m["concentrate"], "aliases": [], "price": {"input": 0.2, "output": 0.8},
              "provider_prices": {"a": {"input": 0.2, "output": 0.8}, "b": {"input": 0.4, "output": 1.6}}} for m in cfg["models"]]
-    refs[6]["price"] = {"input": 4, "output": 20}          # Opus: over the 10k level's price cap
+    refs[1]["price"] = {"input": 4, "output": 20}          # Opus: over the 10k level's price cap
     models = sweep.resolve_models(cfg, refs, [], lambda *_: None)
     wed = dt.datetime(2026, 10, 14, 9)
     assert sweep.current_slot(wed) == "morning"
     # Opus (runs_per_day: 1) runs in exactly one of the three windows each day
     days = [sweep.plan(cfg, sl, wed.replace(hour=h), models) for sl, h in (("morning", 9), ("afternoon", 14), ("evening", 20))]
     assert sum(any(u["model"]["name"] == "Claude Opus 5.5" for u in us) for us in days) == 1
-    assert all(len(us) >= 18 for us in days)
+    assert all(len(us) >= 8 for us in days)
+    # Opus is speed-only, same-provider only
+    assert all(u["tests"] == ["speed"] and u["mode"] == "same_provider" for us in days for u in us if u["model"]["name"] == "Claude Opus 5.5")
     # weekly heavy slot rotates; find this week's and check it carries 10k + quality (+ one A/A model)
     day, sl = sweep.weekly_slot(wed)
     d = wed + dt.timedelta(days=(sweep.DAYS.index(day) - wed.weekday()) % 7)
@@ -204,3 +206,37 @@ def test_total_budget_stops_sweep(tmp_path, monkeypatch):
     msgs = []
     assert asyncio.run(sweep.run_sweep(str(cfg), slot="morning", log=msgs.append)) == []
     assert any("used up" in m for m in msgs)
+
+
+def test_per_gateway_daily_cap(tmp_path, monkeypatch):
+    import asyncio
+    import datetime as dt
+    from gateway_bench import sweep
+    log = tmp_path / "log.csv"
+    today = dt.date.today().isoformat()
+    sweep.append_csv([{"date": today, "gateway": "concentrate", "n": 10, "cost_per_req_usd": 1.5},
+                      {"date": today, "gateway": "openrouter", "n": 10, "cost_per_req_usd": 2.1},
+                      {"date": "2026-01-01", "gateway": "openrouter", "n": 10, "cost_per_req_usd": 9.0}], log)
+    got = sweep.spent_by_gateway(log, today)
+    assert round(got["concentrate"], 2) == 15.0 and round(got["openrouter"], 2) == 21.0
+    now = dt.datetime.now()
+    assert round(sweep.gateway_left_today({"budget_usd_per_gateway_daily": 30}, now, log), 2) == 9.0
+    assert sweep.gateway_left_today({}, now, log) is None
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text("models: []\nbudget_usd_per_gateway_daily: 20\n")
+    monkeypatch.setattr(sweep, "LOG_CSV", log)
+    from gateway_bench.ui import server
+    monkeypatch.setattr(server, "fetch_ref_models", lambda force=False: ([], None))
+    monkeypatch.setattr(server, "fetch_catalog", lambda force=False: ([], None))
+    msgs = []
+    assert asyncio.run(sweep.run_sweep(str(cfg), slot="morning", log=msgs.append)) == []
+    assert any("per-key cap reached" in m for m in msgs)
+
+
+def test_cron_lines_quote_paths():
+    from pathlib import Path
+    from gateway_bench import sweep
+    lines = sweep.cron_lines({"morning": "08:00", "evening": "19:30"}, Path("/home/me/Bench Marking"), "/v/bin/gbench",
+                             Path("/home/me/Bench Marking/results/sweeps/schedule.log"), 150)
+    assert lines[0].startswith("0 8 * * * cd '/home/me/Bench Marking' && /v/bin/gbench sweep --jitter-minutes 150")
+    assert lines[1].startswith("30 19 * * *") and all(l.endswith(sweep.CRON_TAG) for l in lines)

@@ -3,7 +3,7 @@
     gbench sweep --dry-run          # what would run now, and its estimated cost
     gbench sweep                    # run the current slot (morning / afternoon / evening by local time)
     gbench price-check              # per-provider prices on both gateways for the 10 models
-    gbench schedule install         # run `gbench sweep` 3x a day on this Mac (launchd)
+    gbench schedule install         # run `gbench sweep` 3x a day (launchd on macOS, cron on Linux)
 
 Each model x routing mode becomes one run in results/ui/ (so it shows in the web UI), and one row per
 gateway x test x cell is appended to results/sweeps/sweep_log.csv, the sheet to open in Sheets or Excel.
@@ -386,6 +386,33 @@ def spent_to_date(path: Path = LOG_CSV, since: str | None = None) -> float:
     return total
 
 
+def spent_by_gateway(path: Path = LOG_CSV, day: str | None = None) -> dict:
+    """Logged spend per gateway (cost per request x requests), for one date (YYYY-MM-DD) or all dates."""
+    out: dict[str, float] = {}
+    if not Path(path).exists():
+        return out
+    with open(path, newline="") as f:
+        for r in csv.DictReader(f):
+            if day and (r.get("date") or "") != str(day):
+                continue
+            try:
+                c = float(r.get("cost_per_req_usd") or 0) * float(r.get("n") or 0)
+            except ValueError:
+                continue
+            g = (r.get("gateway") or "").lower()
+            out[g] = out.get(g, 0.0) + c
+    return out
+
+
+def gateway_left_today(cfg: dict, now: dt.datetime, path: Path | None = None) -> float | None:
+    """Dollars left today on the gateway that has spent the most; None when no per-gateway daily cap is set."""
+    cap = cfg.get("budget_usd_per_gateway_daily")
+    if cap is None:
+        return None
+    spent = spent_by_gateway(path or LOG_CSV, now.date().isoformat())
+    return float(cap) - max(spent.get(REF, 0.0), spent.get(RIVAL, 0.0))
+
+
 def append_csv(rows: list[dict], path: Path = LOG_CSV) -> None:
     if not rows:
         return
@@ -437,6 +464,15 @@ async def run_sweep(cfg_path: str = "configs/top10.yaml", slot: str | None = Non
             log("[budget] total budget used up; nothing run")
             return []
         budget = min(budget, left)
+    gw_left = gateway_left_today(cfg, now)
+    if gw_left is not None:
+        # per-key daily cap: each gateway's key may spend at most budget_usd_per_gateway_daily today.
+        # Unit estimates cover both gateways, so the slot may plan up to twice what's left on the busier key.
+        log(f"Daily cap: ${gw_left:.2f} left today on the busier key (cap ${float(cfg['budget_usd_per_gateway_daily']):.0f} per key)")
+        if gw_left <= 0:
+            log("[budget] daily per-key cap reached; nothing run")
+            return []
+        budget = min(budget, 2 * gw_left)
     log(f"Sweep · {slot}{' (weekly slot)' if weekly else ''} · {now:%Y-%m-%d %H:%M} · {len(units)} units · "
         f"estimated ${sum(u['est_usd'] for u in units):.2f} at Concentrate's dearest provider price (budget ${budget:.0f})")
     for u in units:
@@ -448,6 +484,10 @@ async def run_sweep(cfg_path: str = "configs/top10.yaml", slot: str | None = Non
     sweep_id = now.strftime("%Y%m%d-") + slot
     SWEEP_DIR.mkdir(parents=True, exist_ok=True)
     for u in units:
+        left_now = gateway_left_today(cfg, now)
+        if left_now is not None and left_now <= 0:
+            log("[budget] daily per-key cap reached mid-sweep; stopping")
+            break
         try:
             rid, pin = await run_unit(u, slot, sweep_id, log)
             append_csv(log_rows(rid, u, slot, sweep_id, pin, now))
@@ -457,7 +497,7 @@ async def run_sweep(cfg_path: str = "configs/top10.yaml", slot: str | None = Non
     return units
 
 
-# ------------------------------------------------------------------ schedule (macOS launchd)
+# ------------------------------------------------------------------ schedule (macOS launchd, Linux cron)
 
 LABEL = "ai.concentrate.gbench-sweep"
 
@@ -486,6 +526,58 @@ def plist_text(slots: dict, repo: Path, gbench: str, log_path: Path, jitter: int
 """
 
 
+CRON_TAG = "# gbench-sweep"
+
+
+def cron_lines(slots: dict, repo: Path, gbench: str, log_path: Path, jitter: int = 150) -> list[str]:
+    import shlex
+    out = []
+    for t in slots.values():
+        hh, mm = (int(x) for x in str(t).split(":"))
+        out.append(f"{mm} {hh} * * * cd {shlex.quote(str(repo))} && {shlex.quote(gbench)} sweep --jitter-minutes {jitter}"
+                   f" >> {shlex.quote(str(log_path))} 2>&1 {CRON_TAG}")
+    return out
+
+
+def schedule_cron(action: str, slots: dict, repo: Path, jitter: int, log=print) -> int:
+    """Linux: the same three windows as launchd, as crontab lines tagged so they can be replaced or removed."""
+    import shutil
+    import subprocess
+    cur = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    existing = [ln for ln in (cur.stdout.splitlines() if cur.returncode == 0 else []) if CRON_TAG not in ln]
+    log_path = repo / SWEEP_DIR / "schedule.log"
+    if action == "show":
+        print("\n".join(cron_lines(slots, repo, shutil.which("gbench") or "gbench", log_path, jitter)))
+        return 0
+    if action == "install":
+        gb = shutil.which("gbench")
+        if not gb:
+            log("Can't find the gbench command; activate the venv first.")
+            return 1
+        (repo / SWEEP_DIR).mkdir(parents=True, exist_ok=True)
+        new = existing + cron_lines(slots, repo, gb, log_path, jitter)
+        r = subprocess.run(["crontab", "-"], input="\n".join(new) + "\n", capture_output=True, text=True)
+        if r.returncode:
+            log(f"crontab install failed: {r.stderr.strip()}")
+            return 1
+        log(f"Scheduled with cron: gbench sweep in three windows a day, starting at a random point within {jitter} min of "
+            f"{', '.join(f'{k} {v}' for k, v in slots.items())} (this machine's local time). Log: {log_path}")
+        log("cron does not run missed slots: keep the VM on.")
+        return 0
+    if action == "uninstall":
+        subprocess.run(["crontab", "-"], input="\n".join(existing) + ("\n" if existing else ""), capture_output=True, text=True)
+        log("Schedule removed.")
+        return 0
+    if action == "status":
+        on = cur.returncode == 0 and CRON_TAG in cur.stdout
+        log(f"Schedule {'installed (cron)' if on else 'not installed'}")
+        if LOG_CSV.exists():
+            log(f"Last sweep rows: {sum(1 for _ in open(LOG_CSV)) - 1} in {LOG_CSV}")
+        return 0
+    log("actions: install | uninstall | status | show")
+    return 1
+
+
 def schedule(action: str, cfg_path: str = "configs/top10.yaml", log=print) -> int:
     import shutil
     import subprocess
@@ -499,11 +591,7 @@ def schedule(action: str, cfg_path: str = "configs/top10.yaml", log=print) -> in
         print(plist_text(slots, repo, gb, repo / SWEEP_DIR / "schedule.log", jitter))
         return 0
     if sys.platform != "darwin":
-        log("Scheduling uses macOS launchd. On Linux add this to `crontab -e` instead:")
-        for t in slots.values():
-            hh, mm = str(t).split(":")
-            log(f"  {int(mm)} {int(hh)} * * *  cd {repo} && {shutil.which('gbench') or 'gbench'} sweep >> {repo / SWEEP_DIR / 'schedule.log'} 2>&1")
-        return 1
+        return schedule_cron(action, slots, repo, jitter, log)
     if action == "install":
         gb = shutil.which("gbench")
         if not gb:

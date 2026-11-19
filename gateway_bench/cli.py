@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--config", default="configs/top10.yaml")
     pc.add_argument("--csv", default="results/sweeps/price_check.csv")
 
-    psc = sub.add_parser("schedule", help="run `gbench sweep` 3x a day on this Mac (launchd)")
+    psc = sub.add_parser("schedule", help="run `gbench sweep` 3x a day (launchd on macOS, cron on Linux)")
     psc.add_argument("action", choices=["install", "uninstall", "status", "show"])
     psc.add_argument("--config", default="configs/top10.yaml")
 

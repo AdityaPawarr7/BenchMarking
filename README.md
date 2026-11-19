@@ -121,9 +121,10 @@ of the window start, models in random order. Every run does speed at 3 prompt si
 and volume at 100 requests (10 in flight). Once a day (rotating window) it adds 1,000 requests (50 in flight)
 and the prompt-cache probe. Once a
 week (rotating day and window) it adds 10,000 requests (200 in flight), GPQA Diamond quality parity, and an
-A/A noise control (one rotating model answers twice per gateway). Claude Opus 5.5 runs once a day
-(`runs_per_day: 1`). These are the 2-week pilot settings: about $240-470/week, with a hard cap of
-`budget_usd_total: 1000` across all runs (counted from `budget_start` in `sweep_log.csv`). Every request records the provider that served it,
+A/A noise control (one rotating model answers twice per gateway). The pilot covers Concentrate's top 5 models;
+Claude Opus 5.5 runs once a day, same-provider mode, speed tests only. Spend is capped at
+`budget_usd_per_gateway_daily: 20`: each key (Concentrate and OpenRouter) spends at most $20 a day, counted from
+`sweep_log.csv`; a slot that would exceed it is trimmed and a sweep stops as soon as either key reaches the cap. Every request records the provider that served it,
 cached and reasoning tokens, and cost. Concentrate's cost is priced at the served provider's list price.
 
 ```bash
@@ -131,7 +132,7 @@ gbench price-check              # per-provider prices on both gateways -> result
 gbench sweep --dry-run          # this slot's plan and estimated cost; sends nothing
 gbench sweep --models "glm 5.3 flash" --modes default   # a small real run to try it
 gbench sweep                    # the whole slot (morning/afternoon/evening from the local time)
-gbench schedule install         # 3 windows a day, random start in each (macOS launchd)
+gbench schedule install         # 3 windows a day, random start in each (launchd on macOS, cron on Linux)
 gbench schedule status          # is it installed; how many rows logged
 ```
 
@@ -140,7 +141,8 @@ and as normal runs in the web UI ("sweep <slot> · <model> · <mode>"). The UI's
 section shows 7-day medians per model and slot, with a CSV download. Budget caps in
 `configs/top10.yaml` skip the most expensive units first and log what they skipped.
 
-The Mac has to be on: launchd runs a missed slot once when it wakes. If `results/sweeps/schedule.log`
+On Linux the schedule is three tagged `crontab` lines; the VM has to stay on, since cron skips missed slots.
+On a Mac, launchd runs a missed slot once when it wakes. If `results/sweeps/schedule.log`
 shows "Operation not permitted", macOS is blocking background access to the iCloud folder. Either give
 the venv's `python3` Full Disk Access (System Settings > Privacy & Security), or keep the repo outside iCloud.
 
